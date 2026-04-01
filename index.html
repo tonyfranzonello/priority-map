@@ -2924,8 +2924,8 @@ function App() {
   },[]);
   const [logJumpDate,setLogJumpDate]=useState(null);
   // Supabase
-  const [sbUrl,setSbUrl]=useState(()=>localStorage.getItem(SB_URL_KEY)||"");
-  const [sbKey,setSbKey]=useState(()=>localStorage.getItem(SB_KEY_KEY)||"");
+  const [sbUrl,setSbUrl]=useState(()=>localStorage.getItem(SB_URL_KEY)||"https://ynjpmbjzwuprumdvjrtv.supabase.co");
+  const [sbKey,setSbKey]=useState(()=>localStorage.getItem(SB_KEY_KEY)||"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InluanBtYmp6d3VwcnVtZHZqcnR2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3MDM0NDEsImV4cCI6MjA5MDI3OTQ0MX0.i985uJGe3RSxnQoP-wgyedSZXMw2S_pJ8gmj41lpYP4");
   const [sbStatus,setSbStatus]=useState("idle"); // idle | connecting | connected | error
   const [sbError,setSbError]=useState("");
   const [showSbModal,setShowSbModal]=useState(false);
@@ -2933,8 +2933,8 @@ function App() {
   const [showRollback,setShowRollback]=useState(false);
   const [snapshots,setSnapshots]=useState([]);
   const [rollbackMsg,setRollbackMsg]=useState("");
-  const [sbUrlDraft,setSbUrlDraft]=useState(()=>localStorage.getItem(SB_URL_KEY)||"");
-  const [sbKeyDraft,setSbKeyDraft]=useState(()=>localStorage.getItem(SB_KEY_KEY)||"");
+  const [sbUrlDraft,setSbUrlDraft]=useState(()=>localStorage.getItem(SB_URL_KEY)||"https://ynjpmbjzwuprumdvjrtv.supabase.co");
+  const [sbKeyDraft,setSbKeyDraft]=useState(()=>localStorage.getItem(SB_KEY_KEY)||"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InluanBtYmp6d3VwcnVtZHZqcnR2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3MDM0NDEsImV4cCI6MjA5MDI3OTQ0MX0.i985uJGe3RSxnQoP-wgyedSZXMw2S_pJ8gmj41lpYP4");
   const sbClientRef=useRef(null);
 
   // Connect to Supabase: load tasks + subscribe to real-time changes
