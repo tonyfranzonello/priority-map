@@ -3695,17 +3695,6 @@ function DealPipelineView({sbClient}) {
           ))}
         </div>
         <div style={{display:'flex',gap:10,alignItems:'center'}}>
-          <span style={{fontSize:9,color:'#334155',fontWeight:700,letterSpacing:0.8}}>SIZE</span>
-          {DEAL_TIERS.map((t,i)=>(
-            <div key={i} style={{display:'flex',alignItems:'center',gap:3}}>
-              <svg width={t.r*2+2} height={t.r*2+2} style={{flexShrink:0}}>
-                <circle cx={t.r+1} cy={t.r+1} r={t.r*0.55} fill="none" stroke="#475569" strokeWidth={1.2}/>
-              </svg>
-              <span style={{fontSize:8,color:'#475569',whiteSpace:'nowrap'}}>{t.label}</span>
-            </div>
-          ))}
-        </div>
-        <div style={{display:'flex',gap:10,alignItems:'center'}}>
           {[['↑','#10B981','Up'],['→','#94A3B8','Flat'],['↓','#EF4444','Down'],['?','#A78BFA','?']].map(([ic,c,l])=>(
             <div key={l} style={{display:'flex',alignItems:'center',gap:3}}>
               <span style={{fontSize:13,color:c,fontWeight:'bold',lineHeight:1}}>{ic}</span>
@@ -3737,32 +3726,50 @@ function DealPipelineView({sbClient}) {
               const large=angle>Math.PI?1:0;
               const path=`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z`;
               startAngle=endAngle;
-              return <path key={cat} d={path} fill={catColors[cat]||'#64748B'} stroke="#0F172A" strokeWidth={0.5}/>;
+              return <path key={cat} d={path} fill={catColors[cat]||'#64748B'} stroke="#0F172A" strokeWidth={0.8}/>;
             });
             return <svg width={size} height={size}>{slices}</svg>;
           };
           return (
-            <div style={{marginLeft:'auto',display:'flex',gap:14,alignItems:'center'}}>
-              <div style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px',background:'#0F172A',border:'1px solid #1E293B',borderRadius:8}}>
-                <MiniPie data={totalByCat} size={28}/>
+            <div style={{marginLeft:'auto',display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,padding:'6px 14px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
+                <MiniPie data={totalByCat} size={56}/>
                 <div>
-                  <div style={{fontSize:8,color:'#64748B',fontWeight:700,letterSpacing:0.5}}>TOTAL</div>
-                  <div style={{fontSize:13,fontWeight:800,color:'#F8FAFC'}}>{fmtAmt(grandTotal)}</div>
+                  <div style={{fontSize:10,color:'#94A3B8',fontWeight:700,letterSpacing:0.8}}>TOTAL</div>
+                  <div style={{fontSize:18,fontWeight:800,color:'#F8FAFC'}}>{fmtAmt(grandTotal)}</div>
                 </div>
               </div>
-              <div style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px',background:'#0F172A',border:'1px solid #1E293B',borderRadius:8}}>
-                <MiniPie data={adjByCat} size={28}/>
+              <div style={{display:'flex',alignItems:'center',gap:10,padding:'6px 14px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
+                <MiniPie data={adjByCat} size={56}/>
                 <div>
-                  <div style={{fontSize:8,color:'#64748B',fontWeight:700,letterSpacing:0.5}}>ADJUSTED</div>
-                  <div style={{fontSize:13,fontWeight:800,color:'#A78BFA'}}>{fmtAmt(grandAdj)}</div>
+                  <div style={{fontSize:10,color:'#94A3B8',fontWeight:700,letterSpacing:0.8}}>ADJUSTED</div>
+                  <div style={{fontSize:18,fontWeight:800,color:'#A78BFA'}}>{fmtAmt(grandAdj)}</div>
                 </div>
               </div>
             </div>
           );
         })()}
       </div>
-      {/* Modeling: quarter totals summary bar */}
+      {/* Modeling: quarter totals summary bar + Total/Adjusted with pie charts */}
       {modelingMode&&modelDeals&&(()=>{
+        const catColors={'Civ':'#3B82F6','SLED':'#10B981','DoD':'#F59E0B','':'#64748B'};
+        const ModelPie=({data,size})=>{
+          const r=size/2-1,cx=size/2,cy=size/2;
+          const total=Object.values(data).reduce((a,b)=>a+b,0);
+          if(total===0) return <svg width={size} height={size}><circle cx={cx} cy={cy} r={r} fill="#1E293B" stroke="#334155" strokeWidth={1}/></svg>;
+          let startAngle=-Math.PI/2;
+          const slices=Object.entries(data).filter(([,v])=>v>0).map(([cat,val])=>{
+            const angle=(val/total)*2*Math.PI;
+            const endAngle=startAngle+angle;
+            const x1=cx+r*Math.cos(startAngle),y1=cy+r*Math.sin(startAngle);
+            const x2=cx+r*Math.cos(endAngle),y2=cy+r*Math.sin(endAngle);
+            const large=angle>Math.PI?1:0;
+            const path=`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z`;
+            startAngle=endAngle;
+            return <path key={cat} d={path} fill={catColors[cat]||'#64748B'} stroke="#0F172A" strokeWidth={0.8}/>;
+          });
+          return <svg width={size} height={size}>{slices}</svg>;
+        };
         const qTotals={};
         const dealsForSummary=pipelineTab==="Total"?modelDeals:modelDeals.filter(d=>d.category===pipelineTab);
         dealsForSummary.forEach(d=>{
@@ -3772,7 +3779,6 @@ function DealPipelineView({sbClient}) {
           const key=q+' '+dt.getFullYear();
           qTotals[key]=(qTotals[key]||0)+d.amount;
         });
-        // Also compute original totals for comparison
         const origTotals={};
         const origForSummary=pipelineTab==="Total"?deals:deals.filter(d=>d.category===pipelineTab);
         origForSummary.forEach(d=>{
@@ -3783,9 +3789,13 @@ function DealPipelineView({sbClient}) {
           origTotals[key]=(origTotals[key]||0)+d.amount;
         });
         const allQtrs=[...new Set([...Object.keys(qTotals),...Object.keys(origTotals)])].sort();
-        const totalModel=Object.values(qTotals).reduce((a,b)=>a+b,0);
+        // Model totals by category for pie charts
+        const mTotalByCat={};let mGrandTotal=0;
+        dealsForSummary.forEach(d=>{const cat=d.category||'';mTotalByCat[cat]=(mTotalByCat[cat]||0)+d.amount;mGrandTotal+=d.amount;});
+        const mAdjByCat={};let mGrandAdj=0;
+        dealsForSummary.forEach(d=>{const cat=d.category||'';const conf=getConf(d);const adj=d.amount*conf.pct;mAdjByCat[cat]=(mAdjByCat[cat]||0)+adj;mGrandAdj+=adj;});
         const totalOrig=Object.values(origTotals).reduce((a,b)=>a+b,0);
-        const totalDelta=totalModel-totalOrig;
+        const totalDelta=mGrandTotal-totalOrig;
         return (
           <div style={{flexShrink:0,display:'flex',gap:8,marginBottom:4,alignItems:'center',flexWrap:'wrap'}}>
             {allQtrs.map(q=>{
@@ -3802,13 +3812,24 @@ function DealPipelineView({sbClient}) {
                 </div>
               );
             })}
-            <div style={{marginLeft:'auto',padding:'4px 12px',background:totalDelta>=0?'rgba(16,185,129,0.1)':'rgba(239,68,68,0.1)',
-              border:`1px solid ${totalDelta>=0?'rgba(16,185,129,0.3)':'rgba(239,68,68,0.3)'}`,borderRadius:6,display:'flex',gap:6,alignItems:'center'}}>
-              <span style={{fontSize:10,fontWeight:700,color:'#94A3B8'}}>TOTAL</span>
-              <span style={{fontSize:12,fontWeight:800,color:'#F8FAFC'}}>{fmtAmt(totalModel)}</span>
-              {totalDelta!==0&&<span style={{fontSize:10,fontWeight:700,color:totalDelta>0?'#10B981':'#EF4444'}}>
-                {totalDelta>0?'+':''}{fmtAmt(totalDelta)} ({((totalDelta/Math.max(totalOrig,1))*100).toFixed(1)}%)
-              </span>}
+            <div style={{marginLeft:'auto',display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,padding:'6px 14px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
+                <ModelPie data={mTotalByCat} size={56}/>
+                <div>
+                  <div style={{fontSize:10,color:'#94A3B8',fontWeight:700,letterSpacing:0.8}}>TOTAL</div>
+                  <div style={{fontSize:18,fontWeight:800,color:'#F8FAFC'}}>{fmtAmt(mGrandTotal)}</div>
+                  {totalDelta!==0&&<div style={{fontSize:10,fontWeight:700,color:totalDelta>0?'#10B981':'#EF4444'}}>
+                    {totalDelta>0?'+':''}{fmtAmt(totalDelta)} ({((totalDelta/Math.max(totalOrig,1))*100).toFixed(1)}%)
+                  </div>}
+                </div>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:10,padding:'6px 14px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
+                <ModelPie data={mAdjByCat} size={56}/>
+                <div>
+                  <div style={{fontSize:10,color:'#94A3B8',fontWeight:700,letterSpacing:0.8}}>ADJUSTED</div>
+                  <div style={{fontSize:18,fontWeight:800,color:'#A78BFA'}}>{fmtAmt(mGrandAdj)}</div>
+                </div>
+              </div>
             </div>
           </div>
         );
@@ -3819,13 +3840,13 @@ function DealPipelineView({sbClient}) {
           {/* Y gridlines + labels */}
           {yLines.map((yl,i)=>(
             <g key={i}>
-              <line x1={PAD.l} y1={yl.y} x2={PAD.l+chartW} y2={yl.y} stroke="#1E293B" strokeWidth={1}/>
-              <text x={PAD.l-8} y={yl.y+4} textAnchor="end" fontSize={9} fill="#475569" fontFamily="inherit">{yl.label}</text>
+              <line x1={PAD.l} y1={yl.y} x2={PAD.l+chartW} y2={yl.y} stroke="#334155" strokeWidth={1}/>
+              <text x={PAD.l-8} y={yl.y+4} textAnchor="end" fontSize={11} fill="#94A3B8" fontWeight="600" fontFamily="inherit">{yl.label}</text>
             </g>
           ))}
           {/* Axes */}
-          <line x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={PAD.t+chartH} stroke="#334155" strokeWidth={1.5}/>
-          <line x1={PAD.l} y1={PAD.t+chartH} x2={PAD.l+chartW} y2={PAD.t+chartH} stroke="#334155" strokeWidth={1.5}/>
+          <line x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={PAD.t+chartH} stroke="#475569" strokeWidth={2}/>
+          <line x1={PAD.l} y1={PAD.t+chartH} x2={PAD.l+chartW} y2={PAD.t+chartH} stroke="#475569" strokeWidth={2}/>
           {/* Quarter background bands */}
           {(()=>{
             const qtrMonths=months.filter(m=>m.isQtr);
@@ -3838,8 +3859,8 @@ function DealPipelineView({sbClient}) {
                   <rect x={m.x} y={PAD.t} width={bandW} height={chartH}
                     fill={qi%2===0?'rgba(30,41,59,0.5)':'rgba(15,23,42,0.3)'} stroke="none"/>
                   {/* Quarter label at top of band */}
-                  <text x={m.x+bandW/2} y={PAD.t+14} textAnchor="middle" fontSize={11} fontWeight="800"
-                    fill={qi%2===0?'#334155':'#2D3748'} fontFamily="inherit" letterSpacing="1">{m.qLabel}</text>
+                  <text x={m.x+bandW/2} y={PAD.t+14} textAnchor="middle" fontSize={14} fontWeight="800"
+                    fill={qi%2===0?'#64748B':'#475569'} fontFamily="inherit" letterSpacing="1.5">{m.qLabel}</text>
                 </g>
               );
             });
@@ -3848,11 +3869,11 @@ function DealPipelineView({sbClient}) {
           {months.map((m,i)=>(
             <g key={i}>
               {m.isQtr
-                ?<line x1={m.x} y1={PAD.t} x2={m.x} y2={PAD.t+chartH} stroke="#334155" strokeWidth={2}/>
-                :<line x1={m.x} y1={PAD.t+chartH} x2={m.x} y2={PAD.t+chartH+5} stroke="#1E293B" strokeWidth={1}/>}
+                ?<line x1={m.x} y1={PAD.t} x2={m.x} y2={PAD.t+chartH} stroke="#475569" strokeWidth={2.5}/>
+                :<line x1={m.x} y1={PAD.t+chartH} x2={m.x} y2={PAD.t+chartH+5} stroke="#334155" strokeWidth={1}/>}
               {m.isQtr
-                ?<text x={m.x+4} y={PAD.t+chartH+30} fontSize={10} fill="#64748B" fontWeight="700" fontFamily="inherit">{m.qLabel}</text>
-                :<text x={m.x} y={PAD.t+chartH+15} textAnchor="middle" fontSize={8} fill="#2D3748" fontFamily="inherit">{m.monthLabel}</text>}
+                ?<text x={m.x+4} y={PAD.t+chartH+30} fontSize={12} fill="#94A3B8" fontWeight="800" fontFamily="inherit">{m.qLabel}</text>
+                :<text x={m.x} y={PAD.t+chartH+15} textAnchor="middle" fontSize={9} fill="#475569" fontWeight="500" fontFamily="inherit">{m.monthLabel}</text>}
             </g>
           ))}
           {/* Today marker */}
