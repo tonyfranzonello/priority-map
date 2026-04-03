@@ -2789,7 +2789,7 @@ function DealPipelineView({sbClient}) {
       try{
         const{data,error}=await sbClient.from("pipeline_deals").select("*").order("date",{ascending:true});
         if(!error&&data&&data.length>0){
-          const mapped=data.map(r=>({account:r.account,date:r.date,amount:r.amount,trend:r.trend,status:r.status||"",sheet:r.sheet,notes:r.notes||""}));
+          const mapped=data.map(r=>({account:r.account,date:r.date,amount:r.amount,trend:r.trend,status:r.status||"",sheet:r.sheet,notes:r.notes||"",category:r.category||""}));
           setDeals(mapped);
           setDealsSource("supabase");
         }
@@ -2867,7 +2867,13 @@ function DealPipelineView({sbClient}) {
               if(s.toLowerCase().includes("pipeline")){status="Pipeline";break;}
             }
             const notes=String(row[14]||"").trim(); // Column O
-            allDeals.push({account,date,amount,trend,status,sheet:sheetLabel,notes});
+            // Category from column Q (index 16)
+            const rawCat=String(row[16]||"").trim();
+            let category="";
+            if(/civ/i.test(rawCat)&&!/sled/i.test(rawCat)) category="Civ";
+            else if(/sled/i.test(rawCat)) category="SLED";
+            else if(/dod/i.test(rawCat)) category="DoD";
+            allDeals.push({account,date,amount,trend,status,sheet:sheetLabel,notes,category});
           }
         });
         if(allDeals.length===0){
@@ -2895,7 +2901,7 @@ function DealPipelineView({sbClient}) {
       for(let i=0;i<parsedDeals.length;i+=50){
         const batch=parsedDeals.slice(i,i+50).map(d=>({
           account:d.account, date:d.date, amount:d.amount, trend:d.trend,
-          status:d.status, sheet:d.sheet, notes:d.notes
+          status:d.status, sheet:d.sheet, notes:d.notes, category:d.category||""
         }));
         const{error}=await sbClient.from("pipeline_deals").insert(batch);
         if(error) throw error;
@@ -2910,12 +2916,9 @@ function DealPipelineView({sbClient}) {
     }
   };
 
-  const [pipelineTab,setPipelineTab]=useState("All");
-  const sheetTabs=useMemo(()=>{
-    const sheets=[...new Set(deals.map(d=>d.sheet).filter(Boolean))];
-    return ["All",...sheets];
-  },[deals]);
-  const filteredDeals=useMemo(()=>deals.map((d,i)=>({...d,_i:i})).filter(d=>pipelineTab==="All"||d.sheet===pipelineTab),[pipelineTab,deals]);
+  const [pipelineTab,setPipelineTab]=useState("Total");
+  const catTabs=["Total","Civ","SLED","DoD"];
+  const filteredDeals=useMemo(()=>deals.map((d,i)=>({...d,_i:i})).filter(d=>pipelineTab==="Total"||d.category===pipelineTab),[pipelineTab,deals]);
 
   const dealR=amt=>amt<150000?16:amt<350000?22:amt<800000?28:amt<2000000?34:40;
   const DEAL_TIERS=[{label:'< $150K',r:16},{label:'$150K–350K',r:22},{label:'$350K–800K',r:28},{label:'$800K–2M',r:34},{label:'> $2M',r:40}];
@@ -2924,6 +2927,7 @@ function DealPipelineView({sbClient}) {
   const trendIcon=t=>t===1?'↑':t===3?'↓':t===0?'·':'→';
   const statusColor=s=>s==='CLOSED!'?'#10B981':s==='Commit'?'#3B82F6':s==='Pipeline'?'#F59E0B':'#64748B';
   const trendColor=t=>t===1?'#10B981':t===3?'#EF4444':'#94A3B8';
+  const catColor=c=>c==='Civ'?'#3B82F6':c==='SLED'?'#10B981':c==='DoD'?'#F59E0B':'#64748B';
 
   const computed=useMemo(()=>{
     const {w,h}=dims;
@@ -2996,14 +3000,17 @@ function DealPipelineView({sbClient}) {
       <div style={{flexShrink:0,marginBottom:6,display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
         <span style={{fontSize:11,fontWeight:700,color:'#64748B',letterSpacing:0.8}}>DEAL PIPELINE — Close Date × Deal Size</span>
         <div style={{display:'flex',gap:4,marginLeft:8}}>
-          {sheetTabs.map(tab=>(
+          {catTabs.map(tab=>{
+            const tabCol=tab==="Total"?"#3B82F6":catColor(tab);
+            return (
             <button key={tab} onClick={()=>setPipelineTab(tab)}
-              style={{padding:'4px 12px',borderRadius:6,border:`1px solid ${pipelineTab===tab?'#3B82F6':'#334155'}`,
-                background:pipelineTab===tab?'#3B82F6':'transparent',color:pipelineTab===tab?'white':'#64748B',
+              style={{padding:'4px 12px',borderRadius:6,border:`1px solid ${pipelineTab===tab?tabCol:'#334155'}`,
+                background:pipelineTab===tab?tabCol:'transparent',color:pipelineTab===tab?'white':'#64748B',
                 fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'inherit',letterSpacing:0.5}}>
               {tab}
             </button>
-          ))}
+            );
+          })}
         </div>
         <button onClick={()=>{setShowUpload(true);setUploadStatus("");setParsedDeals(null);setUploadError("");}}
           style={{padding:'4px 12px',borderRadius:6,border:'1px solid #10B981',background:'transparent',
@@ -3015,21 +3022,19 @@ function DealPipelineView({sbClient}) {
         {dealsSource==="hardcoded"&&<span style={{fontSize:9,color:'#F59E0B',fontWeight:600}}>● Hardcoded data</span>}
         {dealsLoading&&<span style={{fontSize:9,color:'#64748B'}}>Loading...</span>}
         <div style={{display:'flex',gap:12}}>
+          {[['Civ','#3B82F6'],['SLED','#10B981'],['DoD','#F59E0B']].map(([l,c])=>(
+            <div key={l} style={{display:'flex',alignItems:'center',gap:4}}>
+              <svg width={16} height={16}><circle cx={8} cy={8} r={6} fill="none" stroke={c} strokeWidth={2}/></svg>
+              <span style={{fontSize:10,color:'#64748B'}}>{l}</span>
+            </div>
+          ))}
+          <div style={{width:1,height:14,background:'#1E293B',margin:'0 2px'}}/>
           {[['CLOSED!','#10B981'],['Commit','#3B82F6'],['Pipeline','#F59E0B'],['Active','#64748B']].map(([l,c])=>(
             <div key={l} style={{display:'flex',alignItems:'center',gap:4}}>
               <div style={{width:8,height:8,borderRadius:'50%',background:c,flexShrink:0}}/>
               <span style={{fontSize:10,color:'#64748B'}}>{l}</span>
             </div>
           ))}
-          <div style={{width:1,height:14,background:'#1E293B',margin:'0 2px'}}/>
-          <div style={{display:'flex',alignItems:'center',gap:4}}>
-            <svg width={16} height={16}><circle cx={8} cy={8} r={6} fill="none" stroke="#3B82F6" strokeWidth={1.5} strokeDasharray="3,2"/></svg>
-            <span style={{fontSize:10,color:'#64748B'}}>Postal</span>
-          </div>
-          <div style={{display:'flex',alignItems:'center',gap:4}}>
-            <svg width={16} height={16}><circle cx={8} cy={8} r={6} fill="none" stroke="#F59E0B" strokeWidth={2}/><circle cx={8} cy={8} r={3.5} fill="none" stroke="#F59E0B" strokeWidth={1}/></svg>
-            <span style={{fontSize:10,color:'#64748B'}}>DoD</span>
-          </div>
         </div>
         <div style={{display:'flex',gap:10,alignItems:'center'}}>
           <span style={{fontSize:9,color:'#334155',fontWeight:700,letterSpacing:0.8}}>SIZE</span>
@@ -3085,24 +3090,21 @@ function DealPipelineView({sbClient}) {
           {/* Connector lines from natural y to bumped y */}
           {pts.map((p,i)=>{
             if(Math.abs(p.y-p.ny)<4) return null;
-            const col=statusColor(filteredDeals[i].status);
+            const col=catColor(filteredDeals[i].category);
             return <line key={i} x1={p.x} y1={p.ny} x2={p.x} y2={p.y} stroke={col} strokeWidth={1} strokeDasharray="3,3" opacity={0.3}/>;
           })}
           {/* Deal dots + labels */}
           {pts.map((p,i)=>{
             const d=filteredDeals[i];
             const r=p.r;
-            const col=statusColor(d.status);
+            const col=catColor(d.category);
             const isHov=hov===i;
             const labelBelow=p.y<PAD.t+chartH*0.42;
             const arrowSize=Math.round(8+r*0.28);
             return (
               <g key={i} style={{cursor:'default'}} onMouseEnter={()=>setHov(i)} onMouseLeave={()=>setHov(null)}>
                 {isHov&&<circle cx={p.x} cy={p.y} r={r+8} fill={col} opacity={0.12}/>}
-                <circle cx={p.x} cy={p.y} r={r} fill="#0F172A" stroke={col} strokeWidth={isHov?2.5:1.8}
-                  strokeDasharray={d.sheet==='Postal'?`${Math.round(r*0.4)},${Math.round(r*0.2)}`:undefined}/>
-                {d.sheet==='Postal'&&<circle cx={p.x} cy={p.y} r={r-4} fill="none" stroke={col} strokeWidth={0.7} opacity={0.35}/>}
-                {d.sheet==='DoD'&&<circle cx={p.x} cy={p.y} r={r+4} fill="none" stroke={col} strokeWidth={1} opacity={0.25} strokeDasharray="2,2"/>}
+                <circle cx={p.x} cy={p.y} r={r} fill="#0F172A" stroke={col} strokeWidth={isHov?2.5:1.8}/>
                 <text x={p.x} y={p.y+1} textAnchor="middle" dominantBaseline="middle" fontSize={arrowSize} fill={trendColor(d.trend)} fontWeight="bold" fontFamily="inherit">{trendIcon(d.trend)}</text>
                 {/* Account name */}
                 <text x={p.x} y={labelBelow?p.y+r+12:p.y-r-6}
@@ -3131,7 +3133,7 @@ function DealPipelineView({sbClient}) {
           {/* Hover tooltip with Notes/Next Steps */}
           {hov!==null&&filteredDeals[hov]&&filteredDeals[hov].notes&&(()=>{
             const d=filteredDeals[hov], p=pts[hov], r=p.r;
-            const col=statusColor(d.status);
+            const col=catColor(d.category);
             const tw=280, maxTH=180;
             // Position: prefer right of dot; flip left if near right edge; above/below based on y
             let tx=p.x+r+14, ty=p.y-20;
