@@ -65,6 +65,15 @@
     50%  { box-shadow: 0 0 14px rgba(167,139,250,0.8), 0 0 4px rgba(167,139,250,1); }
     100% { box-shadow: 0 0 3px rgba(167,139,250,0.3); }
   }
+  @keyframes pulse {
+    0%   { opacity: 1; }
+    50%  { opacity: 0.5; }
+    100% { opacity: 1; }
+  }
+  @keyframes voiceToastIn {
+    0%   { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+    100% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
 </style>
 </head>
 <body>
@@ -239,6 +248,110 @@ function Circles({tasks,colorBy,onSelect,selectedId,showAll,hovId,onHover,onDotP
   const [dragRender,setDragRender]=useState(null); // {task,x,y} for rendering ghost
   const onSelectRef=useRef(onSelect);
   onSelectRef.current=onSelect;
+
+  // ── Voice command system ──
+  const [voiceActive,setVoiceActive]=useState(false);
+  const [voiceMsg,setVoiceMsg]=useState(null); // {text,type:"success"|"error"|"listening"|"heard"}
+  const voiceRecRef=useRef(null);
+  const voiceMsgTimer=useRef(null);
+  const voiceSupported=typeof window!=="undefined"&&("SpeechRecognition" in window||"webkitSpeechRecognition" in window);
+
+  const showVoiceMsg=(text,type,duration=4000)=>{
+    clearTimeout(voiceMsgTimer.current);
+    setVoiceMsg({text,type});
+    if(duration>0) voiceMsgTimer.current=setTimeout(()=>setVoiceMsg(null),duration);
+  };
+
+  // Fuzzy match task name from spoken text
+  const fuzzyMatchTask=(spoken)=>{
+    const s=spoken.toLowerCase();
+    let best=null,bestScore=-1;
+    tasks.forEach(t=>{
+      const name=t.name.toLowerCase();
+      // Exact substring match is best
+      if(s.includes(name)||name.includes(s)){best=t;bestScore=999;return;}
+      // Word overlap scoring
+      const sWords=s.split(/\s+/);
+      const nWords=name.split(/\s+/);
+      let score=0;
+      nWords.forEach(nw=>{
+        sWords.forEach(sw=>{
+          if(nw===sw) score+=3;
+          else if(nw.startsWith(sw)||sw.startsWith(nw)) score+=2;
+          else if(nw.includes(sw)||sw.includes(nw)) score+=1;
+        });
+      });
+      // Normalize by name length
+      const norm=score/Math.max(nWords.length,1);
+      if(norm>bestScore&&norm>=1.5){bestScore=norm;best=t;}
+    });
+    return best;
+  };
+
+  // Parse ring target from spoken text
+  const parseRingTarget=(spoken)=>{
+    const s=spoken.toLowerCase();
+    if(/must\s*do/i.test(s)||/ring\s*(one|1)/i.test(s)||/critical/i.test(s)||/top\s*priority/i.test(s)) return {ring:0,importance:3,label:"Must Do"};
+    if(/important/i.test(s)||/ring\s*(two|2)/i.test(s)||/middle/i.test(s)) return {ring:1,importance:2,label:"Important"};
+    if(/nice\s*to\s*have/i.test(s)||/ring\s*(three|3)/i.test(s)||/outer/i.test(s)||/back\s*burner/i.test(s)) return {ring:2,importance:1,label:"Nice to Have"};
+    return null;
+  };
+
+  const processVoiceCommand=(transcript)=>{
+    showVoiceMsg(`Heard: "${transcript}"`, "heard", 2000);
+    // Try to parse: "move [task] to [ring]"
+    const moveMatch=transcript.match(/move\s+(.+?)\s+(?:to|into|in)\s+(?:the\s+)?(.+)/i);
+    if(moveMatch){
+      const taskPart=moveMatch[1].replace(/^the\s+/i,"").replace(/\s+task$/i,"");
+      const ringPart=moveMatch[2];
+      const task=fuzzyMatchTask(taskPart);
+      const target=parseRingTarget(ringPart);
+      if(!task){showVoiceMsg(`Couldn't find a task matching "${taskPart}"`, "error");return;}
+      if(!target){showVoiceMsg(`Couldn't understand ring "${ringPart}". Try "Must Do", "Important", or "Nice to Have"`, "error");return;}
+      const currentRing=getRing(task.importance);
+      if(currentRing===target.ring){showVoiceMsg(`"${task.name}" is already in ${target.label}`, "error");return;}
+      // Execute the move
+      if(onTaskUpdateRef.current){
+        onTaskUpdateRef.current(task.id,{importance:target.importance});
+        showVoiceMsg(`Moved "${task.name}" → ${target.label} (importance: ${target.importance})`, "success", 5000);
+      }
+      return;
+    }
+    // Fallback: try to detect task name and ring without "move...to" structure
+    const target=parseRingTarget(transcript);
+    if(target){
+      const cleaned=transcript.toLowerCase().replace(/must\s*do|important|nice\s*to\s*have|ring\s*(one|two|three|1|2|3)|critical|outer|back\s*burner|top\s*priority|middle/gi,"").replace(/move|put|set|change|to|the|into|in/gi,"").trim();
+      if(cleaned){
+        const task=fuzzyMatchTask(cleaned);
+        if(task){
+          const currentRing=getRing(task.importance);
+          if(currentRing===target.ring){showVoiceMsg(`"${task.name}" is already in ${target.label}`, "error");return;}
+          if(onTaskUpdateRef.current){
+            onTaskUpdateRef.current(task.id,{importance:target.importance});
+            showVoiceMsg(`Moved "${task.name}" → ${target.label} (importance: ${target.importance})`, "success", 5000);
+          }
+          return;
+        }
+      }
+    }
+    showVoiceMsg(`Try: "Move [task name] to [Must Do / Important / Nice to Have]"`, "error", 6000);
+  };
+
+  const toggleVoice=()=>{
+    if(voiceActive&&voiceRecRef.current){voiceRecRef.current.stop();return;}
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR) return;
+    const rec=new SR();
+    rec.continuous=false;rec.interimResults=false;rec.lang="en-US";
+    rec.onresult=(ev)=>{
+      const text=ev.results[0][0].transcript;
+      if(text) processVoiceCommand(text);
+    };
+    rec.onend=()=>setVoiceActive(false);
+    rec.onerror=(e)=>{setVoiceActive(false);showVoiceMsg("Voice error: "+e.error,"error");};
+    voiceRecRef.current=rec;rec.start();setVoiceActive(true);
+    showVoiceMsg('Listening... say "Move [task] to [ring]"',"listening",0);
+  };
   const onTaskUpdateRef=useRef(onTaskUpdate);
   onTaskUpdateRef.current=onTaskUpdate;
   const CX=320,CY=320;
@@ -528,7 +641,27 @@ function Circles({tasks,colorBy,onSelect,selectedId,showAll,hovId,onHover,onDotP
             <span style={{fontSize:11,fontWeight:700,color:r.lColor,letterSpacing:0.8,opacity:0.9}}>{r.label}</span>
           </div>
         ))}
+        {voiceSupported&&(
+          <button onClick={toggleVoice} title={voiceActive?'Stop listening':'Voice command — say "Move [task] to [ring]"'}
+            style={{marginTop:4,display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:6,
+              border:`1px solid ${voiceActive?"#EF4444":"#334155"}`,
+              background:voiceActive?"rgba(239,68,68,0.15)":"rgba(59,130,246,0.08)",
+              color:voiceActive?"#EF4444":"#64748B",cursor:"pointer",fontSize:11,fontWeight:600,
+              transition:"all 0.15s",animation:voiceActive?"pulse 1.2s infinite":"none"}}>
+            {voiceActive?"⏹ Listening...":"🎤 Voice Move"}
+          </button>
+        )}
       </div>
+      {/* Voice command toast */}
+      {voiceMsg&&(
+        <div style={{position:"absolute",top:10,left:"50%",transform:"translateX(-50%)",zIndex:20,
+          background:voiceMsg.type==="success"?"rgba(16,185,129,0.95)":voiceMsg.type==="error"?"rgba(239,68,68,0.95)":voiceMsg.type==="heard"?"rgba(59,130,246,0.95)":"rgba(139,92,246,0.9)",
+          color:"white",padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:600,
+          boxShadow:"0 8px 32px rgba(0,0,0,0.4)",maxWidth:500,textAlign:"center",
+          animation:"voiceToastIn 0.25s ease-out"}}>
+          {voiceMsg.text}
+        </div>
+      )}
       {/* SVG ring chart */}
       <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:"4px 12px"}}>
         <svg ref={svgRef} viewBox="0 0 640 640" style={{width:"100%",height:"100%",maxWidth:775,maxHeight:775}} preserveAspectRatio="xMidYMid meet">
@@ -1830,6 +1963,42 @@ const DIAMOND_INIT=[
    items:["Risk reduction (CUI Exfiltration, O365, Salesforce, GitHub)","Threat detection (Insider Threat, Supply Chain, Ransomware)","Compliance (ZT, Executive Order, CISA & IG Audits, CMMC, ITAR)"]},
 ];
 
+// ── Voice-to-Text Button Component ──
+function VoiceBtn({onResult}){
+  const [listening,setListening]=useState(false);
+  const recRef=useRef(null);
+  const supported=typeof window!=="undefined"&&("SpeechRecognition" in window||"webkitSpeechRecognition" in window);
+  const toggle=()=>{
+    if(listening&&recRef.current){recRef.current.stop();return;}
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR) return;
+    const rec=new SR();
+    rec.continuous=false;
+    rec.interimResults=false;
+    rec.lang="en-US";
+    rec.onresult=(ev)=>{
+      const text=ev.results[0][0].transcript;
+      if(text&&onResult) onResult(text);
+    };
+    rec.onend=()=>setListening(false);
+    rec.onerror=()=>setListening(false);
+    recRef.current=rec;
+    rec.start();
+    setListening(true);
+  };
+  if(!supported) return null;
+  return (
+    <button onClick={toggle} title={listening?"Stop listening":"Voice input"}
+      style={{background:listening?"rgba(239,68,68,0.15)":"rgba(59,130,246,0.1)",
+        border:`1px solid ${listening?"#EF4444":"#334155"}`,borderRadius:6,
+        color:listening?"#EF4444":"#64748B",cursor:"pointer",fontSize:14,
+        padding:"3px 7px",lineHeight:1,flexShrink:0,transition:"all 0.15s",
+        animation:listening?"pulse 1.2s infinite":"none"}}>
+      {listening?"⏹":"🎤"}
+    </button>
+  );
+}
+
 function DiamondView() {
   const [sections,setSections]=useState(DIAMOND_INIT);
   const [selId,setSelId]=useState(null);
@@ -2049,10 +2218,16 @@ function DiamondView() {
           </div>
           <div style={{padding:"12px 16px 0"}}>
             <div style={{fontSize:10,color:"#475569",fontWeight:700,letterSpacing:1,marginBottom:4}}>SECTION TITLE</div>
-            <input value={draftLabel} onChange={e=>setDraftLabel(e.target.value)} style={{width:"100%",background:"#0F172A",border:"1px solid #334155",borderRadius:6,color:"#E2E8F0",fontSize:12,padding:"6px 8px",boxSizing:"border-box"}}/>
+            <div style={{display:"flex",gap:4,alignItems:"center"}}>
+              <input value={draftLabel} onChange={e=>setDraftLabel(e.target.value)} style={{flex:1,background:"#0F172A",border:"1px solid #334155",borderRadius:6,color:"#E2E8F0",fontSize:12,padding:"6px 8px",boxSizing:"border-box"}}/>
+              <VoiceBtn onResult={text=>setDraftLabel(prev=>prev?prev+" "+text:text)}/>
+            </div>
           </div>
           <div style={{padding:"12px 16px 0",flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
-            <div style={{fontSize:10,color:"#475569",fontWeight:700,letterSpacing:1,marginBottom:4}}>CONTENT <span style={{fontWeight:400,color:"#334155",textTransform:"none"}}>(one bullet per line)</span></div>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+              <div style={{fontSize:10,color:"#475569",fontWeight:700,letterSpacing:1}}>CONTENT <span style={{fontWeight:400,color:"#334155",textTransform:"none"}}>(one bullet per line)</span></div>
+              <VoiceBtn onResult={text=>setDraft(prev=>prev?prev+"\n"+text:text)}/>
+            </div>
             <textarea value={draft} onChange={e=>setDraft(e.target.value)} style={{flex:1,background:"#0F172A",border:"1px solid #334155",borderRadius:6,color:"#E2E8F0",fontSize:12,padding:8,resize:"none",fontFamily:"inherit",lineHeight:1.6,minHeight:0}}/>
           </div>
           <div style={{padding:"12px 16px",display:"flex",gap:8,flexShrink:0}}>
@@ -2490,17 +2665,17 @@ const DEFAULT_BUZZ_SOURCES=[
   {id:"venturebeat",label:"VentureBeat",url:"https://venturebeat.com/feed/",cat:"AI / SaaS",on:true},
   {id:"crunchbase",label:"Crunchbase News",url:"https://news.crunchbase.com/feed/",cat:"Competitive",on:true},
   {id:"fedscoop",label:"FedScoop",url:"https://fedscoop.com/feed/",cat:"Federal IT",on:true},
-  {id:"nextgov",label:"Nextgov",url:"https://www.nextgov.com/rss/all/",cat:"Federal IT",on:true},
-  {id:"fcw",label:"FCW",url:"https://fcw.com/rss/technology/all.xml",cat:"Federal IT",on:true},
-  {id:"darkreading",label:"Dark Reading",url:"https://www.darkreading.com/rss/all.xml",cat:"Cybersecurity",on:true},
+  {id:"nextgov",label:"Nextgov/FCW",url:"https://www.nextgov.com/rss/all/",cat:"Federal IT",on:true},
+  {id:"govexec",label:"Gov Executive",url:"https://www.govexec.com/feeds/",cat:"Federal IT",on:true},
+  {id:"theregister",label:"The Register",url:"https://www.theregister.com/headlines.atom",cat:"AI / SaaS",on:true},
+  {id:"arstechpolicy",label:"Ars Technica Policy",url:"https://arstechnica.com/tech-policy/feed/",cat:"AI / SaaS",on:true},
 ];
 const DEFAULT_BUZZ_SEARCHES=[
   {id:"q1",label:"Zero Trust & FedRAMP",query:"zero trust FedRAMP federal government",on:true},
   {id:"q2",label:"AI Enterprise",query:"AI enterprise SaaS Microsoft Copilot",on:true},
-  {id:"q3",label:"Federal Cyber",query:"cybersecurity federal government CISA breach",on:true},
-  {id:"q4",label:"Cloud & SaaS",query:"cloud SaaS federal procurement contract",on:true},
+  {id:"q3",label:"Cloud & SaaS",query:"cloud SaaS federal procurement contract",on:true},
 ];
-const DEFAULT_BUZZ_THEMES=["AI","zero trust","FedRAMP","cybersecurity","SaaS","copilot","federal"];
+const DEFAULT_BUZZ_THEMES=["AI","zero trust","FedRAMP","SaaS","copilot","federal"];
 const BUZZ_CAT_COLORS={"AI / SaaS":"#3B82F6","Competitive":"#10B981","Federal IT":"#8B5CF6","Cybersecurity":"#EF4444","Custom":"#F59E0B","Search":"#06B6D4"};
 const BUZZ_CHIP={padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,letterSpacing:0.3,transition:"all 0.15s",fontFamily:"inherit"};
 
@@ -3562,6 +3737,7 @@ function App() {
   const [showSbModal,setShowSbModal]=useState(false);
   const [sbUserEmail,setSbUserEmail]=useState(null);
   const [showRollback,setShowRollback]=useState(false);
+  const [showArchModal,setShowArchModal]=useState(false);
   const [snapshots,setSnapshots]=useState([]);
   const [rollbackMsg,setRollbackMsg]=useState("");
   const [sbUrlDraft,setSbUrlDraft]=useState(()=>localStorage.getItem(SB_URL_KEY)||"https://ynjpmbjzwuprumdvjrtv.supabase.co");
@@ -3729,6 +3905,9 @@ function App() {
             <div style={{fontSize:17,fontWeight:800,color:"#F8FAFC",letterSpacing:-0.3}}>Priority Map</div>
             <div style={{fontSize:11,color:"#475569"}}>{tasks.length} tasks · {owners} owners · {renewals} renewals · {newDeals} new deals</div>
           </div>
+          <button onClick={()=>{setShowArchModal(true);if(sbClientRef.current&&sbStatus==="connected"){sbClientRef.current.from("settings").upsert({key:"architecture_last_viewed",value:{timestamp:new Date().toISOString(),viewer:sbUserEmail||"anonymous"}},{onConflict:"key"}).then(()=>{});}}} title="System Architecture" style={{width:26,height:26,borderRadius:6,border:"1px solid #334155",background:"#0F172A",color:"#64748B",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,transition:"all 0.15s",marginLeft:4,flexShrink:0}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#3B82F6";e.currentTarget.style.color="#3B82F6";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#334155";e.currentTarget.style.color="#64748B";}}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><circle cx="12" cy="10" r="2" fill="currentColor" stroke="none"/><line x1="7" y1="7" x2="10" y2="10"/><line x1="17" y1="7" x2="14" y2="10"/><line x1="7" y1="13" x2="10" y2="10"/><line x1="17" y1="13" x2="14" y2="10"/></svg>
+          </button>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <div style={{background:"#0F172A",borderRadius:8,padding:3,display:"flex",gap:2}}>
@@ -3953,6 +4132,185 @@ function App() {
       )}
 
       {/* ── Supabase config modal ── */}
+      {/* ── Architecture modal ── */}
+      {showArchModal&&(
+        <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)setShowArchModal(false);}} style={{zIndex:1100}}>
+          <div style={{background:"#0F172A",border:"1px solid #334155",borderRadius:20,width:"94vw",maxWidth:1200,maxHeight:"92vh",overflowY:"auto",padding:"32px 36px",position:"relative"}}>
+            <button onClick={()=>setShowArchModal(false)} style={{position:"absolute",top:16,right:20,background:"none",border:"none",color:"#64748B",fontSize:22,cursor:"pointer",lineHeight:1}}>✕</button>
+            <h2 style={{fontSize:22,fontWeight:800,color:"#F8FAFC",textAlign:"center",marginBottom:4}}>Priority Map — System Architecture</h2>
+            <p style={{textAlign:"center",color:"#64748B",fontSize:13,marginBottom:32}}>How all the pieces connect to power your live app — Updated April 2026</p>
+
+            {/* SVG Diagram */}
+            <svg viewBox="0 0 1100 720" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",height:"auto",display:"block",marginBottom:32}}>
+              <defs>
+                <marker id="aGreen" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#34A853"/></marker>
+                <marker id="aYellow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#FBBC04"/></marker>
+                <marker id="aPurple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#A78BFA"/></marker>
+                <marker id="aIndigo" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#6366F1"/></marker>
+                <marker id="aWhite" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#CBD5E1"/></marker>
+                <marker id="aBlue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#3B82F6"/></marker>
+                <marker id="aTeal" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#10B981"/></marker>
+                <marker id="aPink" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#EC4899"/></marker>
+                <filter id="archGlow"><feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#000" floodOpacity="0.35"/></filter>
+                <linearGradient id="appGradArch" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#1E293B"/><stop offset="100%" stopColor="#172554"/></linearGradient>
+              </defs>
+              {/* Arrows */}
+              <line x1="110" y1="110" x2="110" y2="178" stroke="#34A853" strokeWidth="2" strokeDasharray="6,4" opacity="0.7" markerEnd="url(#aGreen)"/>
+              <rect x="52" y="133" width="116" height="16" rx="4" fill="#0F172A"/>
+              <text x="110" y="144" textAnchor="middle" fontSize="9" fontWeight="600" fill="#94A3B8">Triggers on edit</text>
+              <path d="M 220 240 Q 340 200 458 175" fill="none" stroke="#FBBC04" strokeWidth="2" strokeDasharray="6,4" opacity="0.7" markerEnd="url(#aYellow)"/>
+              <rect x="280" y="193" width="120" height="16" rx="4" fill="#0F172A"/>
+              <text x="340" y="204" textAnchor="middle" fontSize="9" fontWeight="600" fill="#94A3B8">Pushes deal data</text>
+              <line x1="110" y1="475" x2="110" y2="548" stroke="#A78BFA" strokeWidth="2" strokeDasharray="6,4" opacity="0.7" markerEnd="url(#aPurple)"/>
+              <rect x="34" y="500" width="152" height="16" rx="4" fill="#0F172A"/>
+              <text x="110" y="511" textAnchor="middle" fontSize="9" fontWeight="600" fill="#94A3B8">Generates index.html</text>
+              <path d="M 220 600 L 458 490" fill="none" stroke="#6366F1" strokeWidth="2" strokeDasharray="6,4" opacity="0.7" markerEnd="url(#aIndigo)"/>
+              <rect x="278" y="530" width="120" height="16" rx="4" fill="#0F172A"/>
+              <text x="338" y="541" textAnchor="middle" fontSize="9" fontWeight="600" fill="#94A3B8">You drag &amp; upload</text>
+              <line x1="570" y1="500" x2="570" y2="548" stroke="#CBD5E1" strokeWidth="2" strokeDasharray="6,4" opacity="0.7" markerEnd="url(#aWhite)"/>
+              <rect x="510" y="515" width="120" height="16" rx="4" fill="#0F172A"/>
+              <text x="570" y="526" textAnchor="middle" fontSize="9" fontWeight="600" fill="#94A3B8">Auto-deploy hook</text>
+              <path d="M 680 610 Q 780 480 860 340" fill="none" stroke="#3B82F6" strokeWidth="2" strokeDasharray="6,4" opacity="0.7" markerEnd="url(#aBlue)"/>
+              <rect x="732" y="440" width="100" height="16" rx="4" fill="#0F172A"/>
+              <text x="782" y="451" textAnchor="middle" fontSize="9" fontWeight="600" fill="#94A3B8">Serves the app</text>
+              <line x1="680" y1="165" x2="858" y2="260" stroke="#10B981" strokeWidth="2" strokeDasharray="6,4" opacity="0.7" markerEnd="url(#aTeal)"/>
+              <line x1="862" y1="250" x2="684" y2="155" stroke="#10B981" strokeWidth="2" strokeDasharray="6,4" opacity="0.7" markerEnd="url(#aTeal)"/>
+              <rect x="706" y="192" width="145" height="16" rx="4" fill="#0F172A"/>
+              <text x="779" y="203" textAnchor="middle" fontSize="9" fontWeight="600" fill="#94A3B8">Reads/writes tasks + deals</text>
+              <line x1="970" y1="105" x2="970" y2="218" stroke="#EC4899" strokeWidth="2" strokeDasharray="6,4" opacity="0.7" markerEnd="url(#aPink)"/>
+              <rect x="920" y="150" width="100" height="16" rx="4" fill="#0F172A"/>
+              <text x="970" y="161" textAnchor="middle" fontSize="9" fontWeight="600" fill="#94A3B8">Visits live URL</text>
+              <path d="M 200 55 Q 550 -10 870 255" fill="none" stroke="#34A853" strokeWidth="1.5" strokeDasharray="3,5" opacity="0.3" markerEnd="url(#aGreen)"/>
+              <rect x="460" y="17" width="170" height="16" rx="4" fill="#0F172A"/>
+              <text x="545" y="28" textAnchor="middle" fontSize="9" fontWeight="600" fill="#475569">Alt: manual upload via app UI</text>
+              {/* Nodes */}
+              <rect x="10" y="15" width="200" height="95" rx="16" fill="#1a2332" stroke="#34A853" strokeWidth="2" filter="url(#archGlow)"/>
+              <text x="110" y="42" textAnchor="middle" fontSize="26">📊</text>
+              <text x="110" y="62" textAnchor="middle" fontSize="13" fontWeight="800" fill="#E2E8F0">Google Sheets</text>
+              <text x="110" y="77" textAnchor="middle" fontSize="9" fill="#94A3B8">Your deal spreadsheet on</text>
+              <text x="110" y="89" textAnchor="middle" fontSize="9" fill="#94A3B8">corporate Google Drive</text>
+              <rect x="68" y="94" width="84" height="16" rx="8" fill="rgba(52,168,83,0.15)"/>
+              <text x="110" y="105" textAnchor="middle" fontSize="8" fontWeight="700" fill="#34A853" letterSpacing="0.8">DATA SOURCE</text>
+
+              <rect x="10" y="185" width="200" height="95" rx="16" fill="#1a2332" stroke="#FBBC04" strokeWidth="2" filter="url(#archGlow)"/>
+              <text x="110" y="212" textAnchor="middle" fontSize="26">⚙️</text>
+              <text x="110" y="232" textAnchor="middle" fontSize="13" fontWeight="800" fill="#E2E8F0">Apps Script</text>
+              <text x="110" y="247" textAnchor="middle" fontSize="9" fill="#94A3B8">Reads sheets, pushes deals</text>
+              <text x="110" y="259" textAnchor="middle" fontSize="9" fill="#94A3B8">to Supabase via HTTP</text>
+              <rect x="68" y="264" width="84" height="16" rx="8" fill="rgba(251,188,4,0.15)"/>
+              <text x="110" y="275" textAnchor="middle" fontSize="8" fontWeight="700" fill="#FBBC04" letterSpacing="0.8">AUTO-SYNC</text>
+
+              <rect x="10" y="390" width="200" height="85" rx="16" fill="#1a2332" stroke="#A78BFA" strokeWidth="2" filter="url(#archGlow)"/>
+              <text x="110" y="417" textAnchor="middle" fontSize="26">🤖</text>
+              <text x="110" y="437" textAnchor="middle" fontSize="13" fontWeight="800" fill="#E2E8F0">Claude (Cowork)</text>
+              <text x="110" y="452" textAnchor="middle" fontSize="9" fill="#94A3B8">Writes code, generates the</text>
+              <text x="110" y="464" textAnchor="middle" fontSize="9" fill="#94A3B8">single-file React app</text>
+              <rect x="78" y="468" width="64" height="16" rx="8" fill="rgba(167,139,250,0.15)"/>
+              <text x="110" y="479" textAnchor="middle" fontSize="8" fontWeight="700" fill="#A78BFA" letterSpacing="0.8">BUILDER</text>
+
+              <rect x="10" y="555" width="200" height="85" rx="16" fill="#1a2332" stroke="#6366F1" strokeWidth="2" filter="url(#archGlow)"/>
+              <text x="110" y="582" textAnchor="middle" fontSize="26">💾</text>
+              <text x="110" y="602" textAnchor="middle" fontSize="13" fontWeight="800" fill="#E2E8F0">Local Files</text>
+              <text x="110" y="617" textAnchor="middle" fontSize="9" fill="#94A3B8">index.html in Downloads</text>
+              <text x="110" y="629" textAnchor="middle" fontSize="9" fill="#94A3B8">~260KB, the complete app</text>
+              <rect x="56" y="633" width="108" height="16" rx="8" fill="rgba(99,102,241,0.15)"/>
+              <text x="110" y="644" textAnchor="middle" fontSize="8" fontWeight="700" fill="#6366F1" letterSpacing="0.8">YOUR COMPUTER</text>
+
+              <rect x="460" y="120" width="220" height="95" rx="16" fill="#1a2332" stroke="#10B981" strokeWidth="2" filter="url(#archGlow)"/>
+              <text x="570" y="147" textAnchor="middle" fontSize="26">⚡</text>
+              <text x="570" y="167" textAnchor="middle" fontSize="13" fontWeight="800" fill="#E2E8F0">Supabase</text>
+              <text x="570" y="182" textAnchor="middle" fontSize="9" fill="#94A3B8">Cloud PostgreSQL database.</text>
+              <text x="570" y="194" textAnchor="middle" fontSize="9" fill="#94A3B8">Stores tasks + pipeline deals</text>
+              <rect x="514" y="199" width="112" height="16" rx="8" fill="rgba(16,185,129,0.15)"/>
+              <text x="570" y="210" textAnchor="middle" fontSize="8" fontWeight="700" fill="#10B981" letterSpacing="0.8">CLOUD DATABASE</text>
+
+              <rect x="460" y="420" width="220" height="80" rx="16" fill="#1a2332" stroke="#CBD5E1" strokeWidth="2" filter="url(#archGlow)"/>
+              <text x="570" y="447" textAnchor="middle" fontSize="26">🐙</text>
+              <text x="570" y="467" textAnchor="middle" fontSize="13" fontWeight="800" fill="#E2E8F0">GitHub</text>
+              <text x="570" y="482" textAnchor="middle" fontSize="9" fill="#94A3B8">tonyfranzonello/priority-map</text>
+              <rect x="514" y="487" width="112" height="16" rx="8" fill="rgba(226,232,240,0.1)"/>
+              <text x="570" y="498" textAnchor="middle" fontSize="8" fontWeight="700" fill="#CBD5E1" letterSpacing="0.8">CODE STORAGE</text>
+
+              <rect x="460" y="555" width="220" height="85" rx="16" fill="#1a2332" stroke="#CBD5E1" strokeWidth="2" filter="url(#archGlow)"/>
+              <text x="570" y="582" textAnchor="middle" fontSize="26">▲</text>
+              <text x="570" y="602" textAnchor="middle" fontSize="13" fontWeight="800" fill="#E2E8F0">Vercel</text>
+              <text x="570" y="617" textAnchor="middle" fontSize="9" fill="#94A3B8">Auto-deploys from GitHub</text>
+              <text x="570" y="629" textAnchor="middle" fontSize="9" fill="#94A3B8">Live in ~60 seconds</text>
+              <rect x="530" y="633" width="80" height="16" rx="8" fill="rgba(226,232,240,0.1)"/>
+              <text x="570" y="644" textAnchor="middle" fontSize="8" fontWeight="700" fill="#CBD5E1" letterSpacing="0.8">HOSTING</text>
+
+              <rect x="860" y="225" width="230" height="115" rx="16" fill="url(#appGradArch)" stroke="#3B82F6" strokeWidth="2.5" filter="url(#archGlow)"/>
+              <text x="975" y="257" textAnchor="middle" fontSize="28">🗺️</text>
+              <text x="975" y="280" textAnchor="middle" fontSize="14" fontWeight="800" fill="#E2E8F0">Priority Map App</text>
+              <text x="975" y="296" textAnchor="middle" fontSize="9" fill="#94A3B8">priority-map-sigma.vercel.app</text>
+              <text x="975" y="310" textAnchor="middle" fontSize="9" fill="#94A3B8">Rings, VxE, Diamond, Pipeline,</text>
+              <text x="975" y="322" textAnchor="middle" fontSize="9" fill="#94A3B8">Timeline, Log, Buzz + more</text>
+              <rect x="919" y="327" width="112" height="16" rx="8" fill="rgba(59,130,246,0.15)"/>
+              <text x="975" y="338" textAnchor="middle" fontSize="8" fontWeight="700" fill="#3B82F6" letterSpacing="0.8">LIVE APPLICATION</text>
+
+              <rect x="860" y="15" width="230" height="90" rx="16" fill="#1a2332" stroke="#EC4899" strokeWidth="2" filter="url(#archGlow)"/>
+              <text x="975" y="42" textAnchor="middle" fontSize="26">👤</text>
+              <text x="975" y="62" textAnchor="middle" fontSize="13" fontWeight="800" fill="#E2E8F0">You (Tony)</text>
+              <text x="975" y="77" textAnchor="middle" fontSize="9" fill="#94A3B8">View app, drag tasks, manage</text>
+              <text x="975" y="89" textAnchor="middle" fontSize="9" fill="#94A3B8">pipeline, upload spreadsheets</text>
+              <rect x="940" y="93" width="70" height="16" rx="8" fill="rgba(236,72,153,0.15)"/>
+              <text x="975" y="104" textAnchor="middle" fontSize="8" fontWeight="700" fill="#EC4899" letterSpacing="0.8">END USER</text>
+            </svg>
+
+            {/* Flow sections */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:24}}>
+              <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:14,padding:"20px 24px"}}>
+                <div style={{fontSize:14,fontWeight:800,color:"#F8FAFC",marginBottom:14}}>Flow 1: Pipeline Data Sync</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {["Update Spreadsheet","Apps Script Runs","Data Hits Supabase","App Shows Live Data"].map((s,i)=>(
+                    <div key={i} style={{flex:"1 1 120px",padding:"10px 12px",background:"#0F172A",border:"1px solid #334155",borderRadius:8,textAlign:"center"}}>
+                      <div style={{width:20,height:20,borderRadius:"50%",background:"#10B981",color:"white",fontSize:10,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:4}}>{i+1}</div>
+                      <div style={{fontSize:11,fontWeight:700,color:"#E2E8F0"}}>{s}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:14,padding:"20px 24px"}}>
+                <div style={{fontSize:14,fontWeight:800,color:"#F8FAFC",marginBottom:14}}>Flow 2: App Code Updates</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {["Claude Builds","index.html Saved","Upload to GitHub","Vercel Deploys"].map((s,i)=>(
+                    <div key={i} style={{flex:"1 1 120px",padding:"10px 12px",background:"#0F172A",border:"1px solid #334155",borderRadius:8,textAlign:"center"}}>
+                      <div style={{width:20,height:20,borderRadius:"50%",background:"#3B82F6",color:"white",fontSize:10,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:4}}>{i+1}</div>
+                      <div style={{fontSize:11,fontWeight:700,color:"#E2E8F0"}}>{s}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Legend grid */}
+            <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:14,padding:"20px 24px"}}>
+              <div style={{fontSize:14,fontWeight:800,color:"#F8FAFC",marginBottom:14}}>What Each Piece Does</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+                {[
+                  {color:"#34A853",name:"Google Sheets",desc:"Your deal spreadsheet on corporate Google Drive. Source of truth for pipeline data."},
+                  {color:"#FBBC04",name:"Apps Script",desc:"Reads all rows, pushes deal data to Supabase via HTTP. Runs on edit or timer."},
+                  {color:"#A78BFA",name:"Claude (Cowork)",desc:"The AI builder. Writes React code and outputs a single index.html file."},
+                  {color:"#6366F1",name:"Local Files",desc:"The index.html in Downloads — ~260KB single file containing all app code."},
+                  {color:"#10B981",name:"Supabase",desc:"Cloud PostgreSQL. Stores tasks, pipeline deals, meetings, and settings."},
+                  {color:"#CBD5E1",name:"GitHub + Vercel",desc:"GitHub stores code. Vercel auto-deploys on push — live in ~60 seconds."},
+                  {color:"#3B82F6",name:"Priority Map App",desc:"The live web app with Rings, VxE, Diamond, Pipeline, Timeline, Log, and Buzz."},
+                  {color:"#EC4899",name:"You (Tony)",desc:"Visit the live URL, drag tasks, manage pipeline, upload spreadsheets."}
+                ].map(item=>(
+                  <div key={item.name} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                    <div style={{width:10,height:10,borderRadius:"50%",background:item.color,flexShrink:0,marginTop:3}}/>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#E2E8F0",marginBottom:2}}>{item.name}</div>
+                      <div style={{fontSize:11,color:"#94A3B8",lineHeight:1.5}}>{item.desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showSbModal&&(
         <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)setShowSbModal(false);}}>
           <div className="modal" style={{width:480}}>
