@@ -8,6 +8,7 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, 'Inter', BlinkMacSystemFont, sans-serif; background: #0F172A; color: #E2E8F0; overflow: hidden; }
@@ -38,7 +39,7 @@
   .range-thumb-label { position: absolute; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: white; pointer-events: none; transform: translateX(-50%); top: 50%; margin-top: -12px; }
   .range-tier { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; padding: 2px 9px; border-radius: 10px; align-self: flex-start; }
   /* Quadrant: fills grid cell, header fixed, tasks scroll */
-  .quadrant { background: rgba(255,255,255,0.02); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; overflow: visible; }
+  .quadrant { background: rgba(255,255,255,0.02); border-radius: 12px; padding: 0; display: flex; flex-direction: column; overflow: visible; }
   .q-tasks { flex: 1; overflow: visible; display: flex; flex-direction: column; gap: 5px; padding-right: 2px; }
   .q-label { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
   .q-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -87,69 +88,84 @@ const QUADRANTS   = [
   { key:3, label:"BACK BURNER", sub:"Not Urgent + Not Important", color:"#64748B", bg:"rgba(100,116,139,0.06)", border:"rgba(100,116,139,0.25)" },
 ];
 const VE_QUADRANTS = [
-  { key:0, label:"QUICK WINS",     sub:"High Value · Low Effort",  tag:"Do these first.",        color:"#10B981", bg:"rgba(16,185,129,0.08)",  border:"rgba(16,185,129,0.35)"  },
-  { key:1, label:"STRATEGIC BETS", sub:"High Value · High Effort", tag:"Invest deliberately.",   color:"#3B82F6", bg:"rgba(59,130,246,0.08)",  border:"rgba(59,130,246,0.35)"  },
-  { key:2, label:"FILL-INS",       sub:"Low Value · Low Effort",   tag:"Use spare capacity.",    color:"#64748B", bg:"rgba(100,116,139,0.06)", border:"rgba(100,116,139,0.25)" },
-  { key:3, label:"AVOID",          sub:"Low Value · High Effort",  tag:"The trap quadrant.",     color:"#EF4444", bg:"rgba(239,68,68,0.08)",   border:"rgba(239,68,68,0.3)"   },
+  { key:0, label:"QUICK WINS",     sub:"High Value · Low Effort",  tag:"Do these first.",        color:"#10B981", bg:"rgba(16,185,129,0.12)",  border:"rgba(16,185,129,0.50)"  },
+  { key:1, label:"STRATEGIC BETS", sub:"High Value · High Effort", tag:"Invest deliberately.",   color:"#3B82F6", bg:"rgba(59,130,246,0.12)",  border:"rgba(59,130,246,0.50)"  },
+  { key:2, label:"FILL-INS",       sub:"Low Value · Low Effort",   tag:"Use spare capacity.",    color:"#64748B", bg:"rgba(100,116,139,0.10)", border:"rgba(100,116,139,0.40)" },
+  { key:3, label:"AVOID",          sub:"Low Value · High Effort",  tag:"The trap quadrant.",     color:"#EF4444", bg:"rgba(239,68,68,0.12)",   border:"rgba(239,68,68,0.45)"   },
 ];
 const RING_LABELS = ["Must Do","Important","Nice to Have"];
 const RING_COLORS = ["#EF4444","#F59E0B","#475569"];
 const DEAL_DATA = [
-  {account:"IRS",              date:"2026-02-19", amount:1440801,  trend:2, status:"CLOSED!",
-   notes:"This is closed and we are slated for production here, Gotta stay on this one!!!! Key players are.......(stand by)"},
-  {account:"SSA",              date:"2026-06-29", amount:767351,   trend:1, status:"Commit",
-   notes:"Connector Pack Opp is not slated for renewal until Sept '26 and SSA is looking to co-term this Opp to the June '27 renewal. New SITES Planning team (2 people) is in place prior to getting to procurement. Bruce Starr WILL be involved this year again. Carahsoft quote is out the door and awaiting next steps from procurement. Owe Carahsoft an internal approved quote now that the Connector pack situation has been confirmed. This is on me! Key POC here is Brian Peltier (Deputy CIO - pushing for Kafka), Kath Carino (Business Improvement Mgr - TEMP), and Steve \"Paul\" Jacobs (CHENG - Leidos). Leidos will be losing power within the pending Contract consolidations within ITSSC (pending IV RFP in the coming weeks/months)."},
-  {account:"FBI",              date:"2026-07-01", amount:1672800,  trend:1, status:"Commit",
-   notes:"We will see a reduction here of $209,363.48 due to extensive licenses being purchased with the previous rep. The reduction was significantly worse but we were able to salvage all of the add-ons, plus adding CP Flink for this year ($114,750) thanks to our partnership with Trilogy and direct interaction with the PM (Kevin Poe) and COR (Elijah Moreno). We have confirmed this! Quote from New Tech is already in house and waiting on next steps from procurement. Key POC at CJIS is Josh Holcomb (Enterprise Architect). Meeting needs to be scheduled via Kevin Poe, Rob Lloyd (Section Chief), or push Trilogy to help (my suggestion). Possibility for HUGE growth within the N3G contract that was won by Trilogy, and the cloud migrated deployment of NCIC (from mainframe). Cloud deployment is slated for Aug/Sept this year. This WILL be the reference architecture going forward for other system mods (NGI, NIC, NDEX, etc.)."},
-  {account:"CMS",              date:"2026-05-09", amount:243000,   trend:1, status:"Commit",
-   notes:"Quote out the door - confirmed receipt with no push back"},
-  {account:"CMS",              date:"2026-05-31", amount:253080,   trend:1, status:"Commit",
-   notes:"Wait for Protest to be resolved or apply to deal desk for a temp extension while protest is still active"},
-  {account:"VA BIP",           date:"2026-04-20", amount:1235520,  trend:2, status:"Commit",
-   notes:"Close renewal in April 2026. Complete Oracle Xstream connector testing."},
-  {account:"CBP",              date:"2026-07-16", amount:1987734,  trend:1, status:"Commit",
-   notes:"Get ATO approval. Close renewal in July 2026."},
-  {account:"CIS",              date:"2026-09-29", amount:2191186,  trend:1, status:"Commit",
-   notes:"Close renewal in September 2026"},
-  {account:"Coast Guard",      date:"2027-02-14", amount:1084590,  trend:1, status:"Commit",
-   notes:"Complete deployment in AWS landing zone."},
-  {account:"CISA",             date:"2026-06-17", amount:118560,   trend:1, status:"Commit",
-   notes:"Close the renewal in June 2026."},
-  {account:"DoE",              date:"2026-08-17", amount:78996,    trend:1, status:"",
-   notes:"In communication with the team - trying to coordinate a trip out to see them"},
-  {account:"DoE",              date:"2026-11-30", amount:80400,    trend:1, status:"",
-   notes:"Trying to reconnect with the team to make sure everything is running smoothly"},
-  {account:"DHCS",             date:"2025-11-01", amount:263550,   trend:1, status:"",
-   notes:""},
-  {account:"UCSD",             date:"2026-06-10", amount:182891,   trend:1, status:"",
-   notes:""},
-  {account:"CA EDD",           date:"2025-11-26", amount:281600,   trend:1, status:"",
-   notes:"Booked and closed as of Feb 26'"},
-  {account:"Western Governors",date:"2026-11-30", amount:292000,   trend:2, status:"Commit",
-   notes:"Met w. Nate and team onsite. Next best step would be to set up a roadmap session for CFLT given some of the new use cases that he mentioned (INFA replacement, etc)"},
-  {account:"Vexcel/NYPD",      date:"2026-11-02", amount:250000,   trend:2, status:"Pipeline",
-   notes:"Set up intro call w. Vexcel CTO for Thurs, 3/26."},
-  {account:"CDC Lantana",      date:"2026-09-30", amount:203240,   trend:0, status:"",
-   notes:"Quote presented the OCIO at CDC - need to follow up with Andrew and team to make sure this is still progressing nicely"},
-  // ── Postal ──
-  {account:"USPS - IMDAS",    date:"2026-03-31", amount:152803,   trend:1, status:"Commit", sheet:"Postal",
-   notes:"Quote is in final steps of Ebuy process"},
-  {account:"USPS - EMAS",     date:"2026-09-30", amount:204126,   trend:1, status:"Commit", sheet:"Postal",
-   notes:"Need to start spinning up quotes soon - usually do about 4-5 months out so there is plenty of runway to make sure all boxes are checked and approvals are completed. We have weekly conversations with these teams via Office Hours and 1 off meetings with the teams as requested."},
-  {account:"USPS - TRP",      date:"2026-09-30", amount:229091,   trend:1, status:"Commit", sheet:"Postal",
-   notes:"Working through upgrades, having some blockage from a sub of AFS (Sai) - having conversations to try to get them moved off the project. Getting help from AFS and Postal to get him removed. Need to start spinning up quotes soon."},
-  {account:"USPS - IV",       date:"2026-09-30", amount:820373,   trend:1, status:"Commit", sheet:"Postal",
-   notes:"Looking at potentially moving to CC - will run parallel for a while before switch, also the team is helping with onboarding new app producers, working through decision tree of what needs to go into Confluent and what will directly feed into DBX."},
-  {account:"USPS - PTR",      date:"2026-09-30", amount:534238,   trend:1, status:"Commit", sheet:"Postal",
-   notes:"PTR will start spinning down at some point as this is now up and running in the cloud but not in the near term. Need to start spinning up quotes soon."},
-  {account:"USPS - PPC/SHIP", date:"2026-09-30", amount:64166,    trend:1, status:"Commit", sheet:"Postal",
-   notes:"Fighting against Strimzi - trying to convert them, but AFS is blocking heavily, Postal wants to start integrating the strimzi with Confluent."},
-  {account:"USPS - IV SPM",   date:"2026-09-30", amount:238112,   trend:1, status:"Commit", sheet:"Postal",
-   notes:"One of three parts of IV - running smoothly unless Sai decides to go rogue and install a ghost broker. Need to start spinning up quotes soon."},
-  {account:"USPS - ILE LVP",  date:"2026-12-26", amount:345569,   trend:1, status:"Commit", sheet:"Postal",
-   notes:"Need to start spinning up quotes soon - usually do about 4-5 months out so there is plenty of runway to make sure all boxes are checked and approvals are completed."},
-  {account:"USPS - PTR2/EEB", date:"2026-12-07", amount:5800000,  trend:1, status:"Commit", sheet:"Postal",
-   notes:"Continuing to find Streaming Projects, and drive consumption"},
+  {account:"IRS",date:"2026-02-19",amount:1440801,trend:2,status:"CLOSED!",sheet:"Civ SLED",notes:"This is closed and we are slated for production here, Gotta stay on this one!!!! Key players are.......(stand by)"},
+  {account:"SSA",date:"2026-06-29",amount:767351,trend:1,status:"Commit",sheet:"Civ SLED",notes:"Connector Pack Opp is not slated for renewal until Sept '26 and SSA is looking to co-term this Opp to the June '27 renewal. New SITES Planning team (2 people) is in place prior to getting to procurement. Bruce Starr WILL be involved this year again. Carahsoft quote is out the door and awaiting next steps from procurement."},
+  {account:"FBI",date:"2026-07-01",amount:1672800,trend:1,status:"Commit",sheet:"Civ SLED",notes:"We will see a reduction here of $209,363.48 due to extensive licenses being purchased with the previous rep. The reduction was significantly worse but we were able to salvage all of the add-ons, plus adding CP Flink for this year ($114,750)."},
+  {account:"CMS",date:"2026-05-09",amount:243000,trend:1,status:"Commit",sheet:"Civ SLED",notes:"Quote out the door - confirmed receipt with no push back"},
+  {account:"CMS (Protest)",date:"2026-05-31",amount:253080,trend:1,status:"Commit",sheet:"Civ SLED",notes:"Wait for Protest to be resolved or apply to deal desk for a temp extension while protest is still active"},
+  {account:"VA BIP",date:"2026-04-20",amount:1235520,trend:2,status:"Commit",sheet:"Civ SLED",notes:"Close renewal in April 2026. Complete Oracle Xstream connector testing."},
+  {account:"CBP",date:"2026-07-16",amount:1987734,trend:1,status:"Commit",sheet:"Civ SLED",notes:"Get ATO approval. Close renewal in July 2026."},
+  {account:"CIS",date:"2026-09-29",amount:2191186,trend:1,status:"Commit",sheet:"Civ SLED",notes:"Close renewal in September 2026"},
+  {account:"Coast Guard",date:"2027-02-14",amount:1084590,trend:1,status:"Commit",sheet:"Civ SLED",notes:"Complete deployment in AWS landing zone."},
+  {account:"CISA",date:"2026-06-17",amount:118560,trend:1,status:"Commit",sheet:"Civ SLED",notes:"Close the renewal in June 2026."},
+  {account:"DoE (Trip)",date:"2026-08-17",amount:78996,trend:1,status:"",sheet:"Civ SLED",notes:"In communication with the team - trying to coordinate a trip out to see them"},
+  {account:"DoE (Reconnect)",date:"2026-11-30",amount:80400,trend:1,status:"",sheet:"Civ SLED",notes:"Trying to reconnect with the team to make sure everything is running smoothly"},
+  {account:"DHCS",date:"2025-11-01",amount:263550,trend:1,status:"",sheet:"Civ SLED",notes:""},
+  {account:"UCSD",date:"2026-06-10",amount:182891,trend:1,status:"",sheet:"Civ SLED",notes:""},
+  {account:"CA EDD",date:"2025-11-26",amount:281600,trend:1,status:"",sheet:"Civ SLED",notes:"Booked and closed as of Feb 26'"},
+  {account:"Western Governors",date:"2026-11-30",amount:292000,trend:2,status:"Commit",sheet:"Civ SLED",notes:"Met w. Nate and team onsite. Next best step would be to set up a roadmap session for CFLT."},
+  {account:"CDC Lantana",date:"2026-09-30",amount:203240,trend:0,status:"",sheet:"Civ SLED",notes:"Quote presented the OCIO at CDC - need to follow up with Andrew and team."},
+  {account:"Vexcel/NYPD",date:"2026-11-02",amount:250000,trend:2,status:"Pipeline",sheet:"Civ SLED",notes:"Set up intro call w. Vexcel CTO for Thurs, 3/26."},
+  {account:"USPS - IMDAS",date:"2026-03-31",amount:152803,trend:1,status:"Commit",sheet:"Postal",notes:"Quote is in final steps of Ebuy process"},
+  {account:"USPS - EMAS",date:"2026-09-30",amount:204126,trend:1,status:"Commit",sheet:"Postal",notes:"Need to start spinning up quotes soon - usually do about 4-5 months out."},
+  {account:"USPS - TRP",date:"2026-09-30",amount:229091,trend:1,status:"Commit",sheet:"Postal",notes:"Working through upgrades, having some blockage from a sub of AFS (Sai)."},
+  {account:"USPS - IV",date:"2026-09-30",amount:820373,trend:1,status:"Commit",sheet:"Postal",notes:"Looking at potentially moving to CC - will run parallel for a while before switch."},
+  {account:"USPS - PTR",date:"2026-09-30",amount:534238,trend:1,status:"Commit",sheet:"Postal",notes:"PTR will start spinning down at some point as this is now up and running in the cloud."},
+  {account:"USPS - PPC/SHIP",date:"2026-09-30",amount:64166,trend:1,status:"Commit",sheet:"Postal",notes:"Fighting against Strimzi - trying to convert them, but AFS is blocking heavily."},
+  {account:"USPS - IV SPM",date:"2026-09-30",amount:238112,trend:1,status:"Commit",sheet:"Postal",notes:"One of three parts of IV - running smoothly."},
+  {account:"USPS - ILE LVP",date:"2026-12-26",amount:345569,trend:1,status:"Commit",sheet:"Postal",notes:"Need to start spinning up quotes soon."},
+  {account:"USPS - PTR2/EEB",date:"2026-12-07",amount:5800000,trend:1,status:"Commit",sheet:"Postal",notes:"Continuing to find Streaming Projects, and drive consumption"},
+  {account:"USMC MCCO/MCCOG",date:"2026-03-30",amount:634666,trend:2,status:"",sheet:"DoD",notes:"Nothing"},
+  {account:"Navy Guardians ZT",date:"2026-03-27",amount:93600,trend:2,status:"",sheet:"DoD",notes:"Funding identification"},
+  {account:"Navy NAVSEA POC",date:"2026-03-27",amount:98645,trend:1,status:"",sheet:"DoD",notes:"Renewal budget identified"},
+  {account:"USMC MSIEM 97N",date:"2026-04-30",amount:832261,trend:2,status:"",sheet:"DoD",notes:"Funding to get MIPR'd"},
+  {account:"Navy EWDS/SAIC",date:"2026-06-30",amount:244125,trend:1,status:"",sheet:"DoD",notes:"Meet 3/25 to discuss budget rebuttal"},
+  {account:"Navy Minotaur/HII",date:"2026-09-30",amount:202800,trend:2,status:"",sheet:"DoD",notes:"Reconnect and budget"},
+  {account:"Navy NOBLE/LOG-IT",date:"2026-09-16",amount:423664,trend:1,status:"",sheet:"DoD",notes:"NMRO Shakeout? Could Churn"},
+  {account:"Navy NextMRO",date:"2026-09-30",amount:187200,trend:1,status:"",sheet:"DoD",notes:"Awaiting award"},
+  {account:"Navy NAVAIR/CDS",date:"2026-09-30",amount:234000,trend:1,status:"",sheet:"DoD",notes:"Reconnect Needed"},
+  {account:"USMC MARFORPAC",date:"2026-09-30",amount:198000,trend:1,status:"",sheet:"DoD",notes:"Reconnect Needed"},
+  {account:"Navy LOG IT Afloat",date:"2026-09-30",amount:3850000,trend:1,status:"",sheet:"DoD",notes:"Poke"},
+  {account:"Navy Magic Pony",date:"2026-10-08",amount:336783,trend:1,status:"",sheet:"DoD",notes:"All information"},
+  {account:"Navy KBR Lab",date:"2026-12-14",amount:13650,trend:1,status:"",sheet:"DoD",notes:"Nothing Yet"},
+  {account:"Navy Stigian Ships",date:"2027-02-02",amount:75000,trend:2,status:"",sheet:"DoD",notes:"Small POC Decision"},
+  {account:"STRATCOM SMPES DSS",date:"2026-03-12",amount:491400,trend:2,status:"",sheet:"DoD",notes:"Nothing/closed"},
+  {account:"SDA AFCGI",date:"2026-03-09",amount:137700,trend:2,status:"",sheet:"DoD",notes:"Nothing/closed"},
+  {account:"Space Force PEO OTTI",date:"2026-03-31",amount:106080,trend:2,status:"",sheet:"DoD",notes:"RFQ window closes Friday. NG to issue PO."},
+  {account:"USAF CBC2-RAFT",date:"2026-04-24",amount:290700,trend:2,status:"",sheet:"DoD",notes:"Still confirming sizing; potentially will include $97k NAVV"},
+  {account:"York Space/SDA T2",date:"2026-06-01",amount:269775,trend:2,status:"",sheet:"DoD",notes:"Quote with York procurement and waiting on internal approvals"},
+  {account:"GD-MS SDA T1",date:"2026-08-17",amount:456456,trend:2,status:"",sheet:"DoD",notes:"Nothing"},
+  {account:"GD-MS SDA T2",date:"2026-08-17",amount:288000,trend:1,status:"",sheet:"DoD",notes:"Need to confirm Tranche 2 sizing with GDMS"},
+  {account:"STRATCOM NPES Exp",date:"2026-09-21",amount:1296000,trend:1,status:"",sheet:"DoD",notes:"Need to confirm sizing/roadmap for remainder of CY26"},
+  {account:"SSC SDA TAP Lab",date:"2026-09-25",amount:135660,trend:1,status:"",sheet:"DoD",notes:"TAP Lab finalizing architecture; on 3 month infra pause right now"},
+  {account:"USAF ABMS/Northrop",date:"2026-09-30",amount:108000,trend:1,status:"",sheet:"DoD",notes:"Need NDA signed"},
+  {account:"NGC OPSC2 Swordfish",date:"2026-11-13",amount:424320,trend:2,status:"",sheet:"DoD",notes:"Nothing; program future is uncertain so there is some risk here"},
+  {account:"L3 Airborne DDIL",date:"2026-12-16",amount:68400,trend:1,status:"",sheet:"DoD",notes:"IRAD project, future funding is uncertain"},
+  {account:"USAF Golden Dome",date:"2026-12-18",amount:2997000,trend:0,status:"",sheet:"DoD",notes:"Was previously not in my territory; need to align with SIs"},
+  {account:"USSF SSC-UDL",date:"2026-12-31",amount:162000,trend:1,status:"",sheet:"DoD",notes:"Need to align with SIs for EDISON"},
+  {account:"PEO C3BM TOC-L",date:"2026-12-31",amount:155520,trend:1,status:"",sheet:"DoD",notes:"Need to close CBC2 renewal w/TOC-L prototype nodes first"},
+  {account:"Army AGUN O-Site 1",date:"2026-04-30",amount:292383,trend:2,status:"",sheet:"DoD",notes:"Award"},
+  {account:"IPPS-A Renewal",date:"2026-05-29",amount:1129507,trend:2,status:"",sheet:"DoD",notes:"RFQ"},
+  {account:"RCC-FTE 2025",date:"2026-09-15",amount:749540,trend:1,status:"",sheet:"DoD",notes:"Commitment from customer"},
+  {account:"Army ELA",date:"2026-09-15",amount:3780691,trend:0,status:"",sheet:"DoD",notes:"Commitment from customer"},
+  {account:"IPPS-A FTE 2026",date:"2026-09-27",amount:624240,trend:2,status:"",sheet:"DoD",notes:"RFQ"},
+  {account:"Army ECS/Microsoft",date:"2026-10-21",amount:190944,trend:0,status:"",sheet:"DoD",notes:"Commitment from customer"},
+  {account:"Contract Consol 00064184",date:"2026-10-23",amount:4748913,trend:1,status:"",sheet:"DoD",notes:"Commitment from customer"},
+  {account:"Army AGUN O-Site x2",date:"2026-12-15",amount:164240,trend:2,status:"",sheet:"DoD",notes:"RFQ"},
+  {account:"Army AGUN Lab",date:"2026-12-30",amount:85995,trend:2,status:"",sheet:"DoD",notes:"RFQ"},
+  {account:"Army AGUN Ronin",date:"2026-12-30",amount:307440,trend:2,status:"",sheet:"DoD",notes:"RFQ"},
+  {account:"DISA SAP BAH",date:"2026-06-30",amount:181000,trend:1,status:"",sheet:"DoD",notes:""},
+  {account:"BAH FMS",date:"2026-09-30",amount:174000,trend:1,status:"",sheet:"DoD",notes:"Placeholder Date"},
+  {account:"BAH MPE",date:"2026-09-30",amount:318000,trend:1,status:"",sheet:"DoD",notes:"Placeholder Date"},
+  {account:"AGUN Expansion",date:"2026-04-30",amount:200000,trend:1,status:"",sheet:"DoD",notes:"Placeholder value"},
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -208,7 +224,7 @@ function OwnerSelect({value,onChange,team,onAddPerson,label}) {
 }
 
 // ── Concentric Circles ────────────────────────────────────────────────────────
-function Circles({tasks,colorBy,onSelect,selectedId,showAll,hovId,onHover,onDotPositions}) {
+function Circles({tasks,colorBy,onSelect,selectedId,showAll,hovId,onHover,onDotPositions,onTaskUpdate}) {
   const hov=hovId!=null?hovId:null;
   const setHov=id=>{if(onHover)onHover(id);};
   const [hovGroup,setHovGroup]=useState(null);
@@ -218,6 +234,13 @@ function Circles({tasks,colorBy,onSelect,selectedId,showAll,hovId,onHover,onDotP
   const [connLines,setConnLines]=useState([]);
   const [ringLines,setRingLines]=useState([]);
   const headerRefs=useRef({});
+  const [pendingDrop,setPendingDrop]=useState(null);
+  const dragRef=useRef({task:null,startClient:null,active:false,pos:null});
+  const [dragRender,setDragRender]=useState(null); // {task,x,y} for rendering ghost
+  const onSelectRef=useRef(onSelect);
+  onSelectRef.current=onSelect;
+  const onTaskUpdateRef=useRef(onTaskUpdate);
+  onTaskUpdateRef.current=onTaskUpdate;
   const CX=320,CY=320;
   const rings=[
     {mid:60,  r1:0,  r2:121, label:"MUST DO",      lColor:"#EF4444",fill:"rgba(239,68,68,0.12)", stroke:"rgba(239,68,68,0.55)"},
@@ -434,6 +457,67 @@ function Circles({tasks,colorBy,onSelect,selectedId,showAll,hovId,onHover,onDotP
     }]);
   },[hovGroup,showAll]);
 
+  // Drag tracking — uses native DOM listeners for maximum reliability
+  const tasksRef=useRef(tasks);
+  tasksRef.current=tasks;
+  const toSvgCoords=(clientX,clientY)=>{
+    const svg=svgRef.current;if(!svg)return null;
+    const pt=svg.createSVGPoint();pt.x=clientX;pt.y=clientY;
+    const ctm=svg.getScreenCTM();if(!ctm)return null;
+    const s=pt.matrixTransform(ctm.inverse());
+    return{x:Math.max(0,Math.min(640,s.x)),y:Math.max(0,Math.min(640,s.y))};
+  };
+  // Attach native mousedown on the SVG element, mousemove/mouseup on window
+  useEffect(()=>{
+    const svg=svgRef.current;
+    if(!svg)return;
+    const onDown=(e)=>{
+      // Walk up from the event target to find a [data-dot-id] group
+      let el=e.target;
+      let dotId=null;
+      while(el&&el!==svg){
+        if(el.dataset&&el.dataset.dotId){dotId=el.dataset.dotId;break;}
+        el=el.parentElement||el.parentNode;
+      }
+      if(!dotId)return;
+      e.preventDefault();
+      const task=tasksRef.current.find(t=>String(t.id)===dotId);
+      if(!task)return;
+      dragRef.current={task,startClient:{x:e.clientX,y:e.clientY},active:false,pos:null};
+    };
+    const onMove=(e)=>{
+      const d=dragRef.current;if(!d||!d.task)return;
+      const dx=e.clientX-d.startClient.x,dy=e.clientY-d.startClient.y;
+      if(!d.active&&Math.sqrt(dx*dx+dy*dy)<6)return;
+      d.active=true;
+      const svgPt=toSvgCoords(e.clientX,e.clientY);
+      if(svgPt){d.pos=svgPt;setDragRender({task:d.task,x:svgPt.x,y:svgPt.y});}
+    };
+    const onUp=(e)=>{
+      const d=dragRef.current;
+      if(!d||!d.task)return;
+      if(d.active&&d.pos){
+        const dist=Math.sqrt((d.pos.x-CX)**2+(d.pos.y-CY)**2);
+        const newRing=dist<=121?0:dist<=251?1:2;
+        const oldRing=getRing(d.task.importance);
+        if(newRing!==oldRing){
+          const newImportance=newRing===0?3:newRing===1?2:1;
+          const ringLabel=["MUST DO","IMPORTANT","NICE TO HAVE"][newRing];
+          setPendingDrop({task:d.task,newImportance,ringLabel,x:d.pos.x,y:d.pos.y});
+        }
+      } else if(!d.active){
+        const task=d.task;
+        if(onSelectRef.current) onSelectRef.current(task);
+      }
+      dragRef.current={task:null,startClient:null,active:false,pos:null};
+      setDragRender(null);
+    };
+    svg.addEventListener("mousedown",onDown);
+    window.addEventListener("mousemove",onMove);
+    window.addEventListener("mouseup",onUp);
+    return()=>{svg.removeEventListener("mousedown",onDown);window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};
+  },[]);
+
   return (
     <div ref={containerRef} style={{flex:1,minHeight:0,display:"flex",overflow:"hidden",position:"relative"}}>
       {/* Legend — HTML overlay, top-left corner */}
@@ -455,13 +539,18 @@ function Circles({tasks,colorBy,onSelect,selectedId,showAll,hovId,onHover,onDotP
             const isHov=hov===task.id,isSel=selectedId===task.id;
             const color=getColor(task),dotR=isSel?12:isHov?11:9;
             return (
-              <g key={task.id} data-dot-id={task.id} onClick={()=>onSelect(task)} onMouseEnter={()=>setHov(task.id)} onMouseLeave={()=>setHov(null)} style={{cursor:"pointer"}}>
+              <g key={task.id} data-dot-id={String(task.id)}
+                onMouseEnter={()=>setHov(task.id)} onMouseLeave={()=>setHov(null)} style={{cursor:"grab",userSelect:"none"}}>
                 {isSel&&<circle cx={x} cy={y} r={dotR+4} fill={color} opacity={0.18}/>}
                 {hov===task.id&&<circle cx={x} cy={y} r={dotR+5} fill="none" stroke={color} strokeWidth={1.5} opacity={0.5} strokeDasharray="3,2"/>}
-                <circle cx={x} cy={y} r={dotR} fill={color} stroke={isSel?"white":"rgba(255,255,255,0.55)"} strokeWidth={isSel?2.5:1.5} opacity={isSel?1:0.9}/>
+                <circle cx={x} cy={y} r={dotR} fill={color} stroke={isSel?"white":"rgba(255,255,255,0.55)"} strokeWidth={isSel?2.5:1.5} opacity={dragRender?.task?.id===task.id?0.4:isSel?1:0.9}/>
               </g>
             );
           }))}
+          {/* Dragging ghost circle */}
+          {dragRender&&(
+            <circle cx={dragRender.x} cy={dragRender.y} r={11} fill={getColor(dragRender.task)} stroke="white" strokeWidth={2} opacity={0.6} strokeDasharray="4,3" pointerEvents="none"/>
+          )}
           {/* Task name labels adjacent to each dot */}
           {grouped.flatMap(g=>g.tasks).map(task=>{
             const dp=dotPositions[task.id], lp=dotLabelPos[task.id];
@@ -488,6 +577,22 @@ function Circles({tasks,colorBy,onSelect,selectedId,showAll,hovId,onHover,onDotP
             );
           })}
         </svg>
+
+        {/* Confirmation overlay for drag drop */}
+        {pendingDrop&&pendingDrop.x!==undefined&&(
+          <svg style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",pointerEvents:"auto",overflow:"visible"}} width="100%" height="100%">
+            <foreignObject x={Math.max(0,pendingDrop.x-80)} y={Math.max(0,pendingDrop.y-80)} width={160} height={100}>
+              <div style={{background:"#1E293B",border:`2px solid ${pendingDrop.task.importance===3?"#EF4444":pendingDrop.task.importance===2?"#F59E0B":"#475569"}`,borderRadius:12,padding:12,width:"100%",boxShadow:"0 8px 32px rgba(0,0,0,0.6)",fontFamily:"inherit"}}>
+                <div style={{fontSize:11,fontWeight:600,color:"#F1F5F9",marginBottom:8,maxWidth:136,whiteSpace:"normal",wordBreak:"break-word"}}>{pendingDrop.task.name}</div>
+                <div style={{fontSize:10,color:"#94A3B8",marginBottom:10}}>Move to {pendingDrop.ringLabel}?</div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={async()=>{if(onTaskUpdateRef.current)await onTaskUpdateRef.current(pendingDrop.task.id,{importance:pendingDrop.newImportance});setPendingDrop(null);}} style={{flex:1,background:"#10B981",color:"white",border:"none",borderRadius:6,padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>✓ Move</button>
+                  <button onClick={()=>setPendingDrop(null)} style={{flex:1,background:"#EF4444",color:"white",border:"none",borderRadius:6,padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer"}}>✕ Cancel</button>
+                </div>
+              </div>
+            </foreignObject>
+          </svg>
+        )}
       </div>
 
       {/* Right detail panel — visible when Details On */}
@@ -585,35 +690,105 @@ function Matrix({tasks,colorBy,onSelect,selectedId,showDetails}) {
 }
 
 // ── Value vs. Effort Matrix ───────────────────────────────────────────────────
-function ValueEffortMatrix({tasks,colorBy,onSelect,selectedId,showDetails}) {
+function ValueEffortMatrix({tasks,colorBy,onSelect,selectedId,showDetails,onTaskUpdate}) {
   const getColor=t=>colorBy==="type"?typeColor(t):colorBy==="timeline"?TIME_COLORS[t.timeline]:CAT_COLORS[t.category];
   const byQ=VE_QUADRANTS.map(q=>({...q,tasks:tasks.filter(t=>getVEQuad(t.value,t.effort)===q.key)}));
   const [hovId,setHovId]=useState(null);
   const [veNotes,setVeNotes]=useState(()=>{try{return localStorage.getItem("pm_ve_notes")||"";}catch(e){return "";}});
   const [veNotesSaved,setVeNotesSaved]=useState(true);
+  const [pendingVEDrop,setPendingVEDrop]=useState(null);
+  const [veDragState,setVeDragState]=useState(null);
+  const veDragRef=useRef(null);
+  const quadRefs=useRef({});
+  const veContainerRef=useRef(null);
+  const onSelectRef=useRef(onSelect);
+  onSelectRef.current=onSelect;
+  const onTaskUpdateRef=useRef(onTaskUpdate);
+  onTaskUpdateRef.current=onTaskUpdate;
+  const veTasksRef=useRef(tasks);
+  veTasksRef.current=tasks;
   const saveVeNotes=useCallback(()=>{try{localStorage.setItem("pm_ve_notes",veNotes);}catch(e){} setVeNotesSaved(true);},[veNotes]);
+  const getQuadAtPoint=(clientX,clientY)=>{
+    for(const key of [0,1,2,3]){
+      const el=quadRefs.current[key];
+      if(!el)continue;
+      const r=el.getBoundingClientRect();
+      if(clientX>=r.left&&clientX<=r.right&&clientY>=r.top&&clientY<=r.bottom)return key;
+    }
+    return null;
+  };
+  // Native DOM event listeners for VxE drag
+  useEffect(()=>{
+    const container=veContainerRef.current;
+    if(!container)return;
+    const onDown=(e)=>{
+      // Walk up from target to find a [data-task-id] element
+      let el=e.target;
+      let taskId=null;
+      while(el&&el!==container){
+        if(el.dataset&&el.dataset.taskId){taskId=el.dataset.taskId;break;}
+        el=el.parentElement;
+      }
+      if(!taskId)return;
+      e.preventDefault();
+      const task=veTasksRef.current.find(t=>String(t.id)===taskId);
+      if(!task)return;
+      veDragRef.current={task,startX:e.clientX,startY:e.clientY,currentX:e.clientX,currentY:e.clientY,active:false};
+    };
+    const onMove=(e)=>{
+      const d=veDragRef.current;if(!d)return;
+      const dx=e.clientX-d.startX,dy=e.clientY-d.startY;
+      if(!d.active&&Math.sqrt(dx*dx+dy*dy)<6)return;
+      d.active=true;d.currentX=e.clientX;d.currentY=e.clientY;
+      veDragRef.current={...d};
+      setVeDragState({...d});
+    };
+    const onUp=(e)=>{
+      const d=veDragRef.current;
+      if(!d)return;
+      if(d.active){
+        const targetQ=getQuadAtPoint(e.clientX,e.clientY);
+        const currentQ=getVEQuad(d.task.value,d.task.effort);
+        if(targetQ!==null&&targetQ!==currentQ){
+          const veMap={0:{value:3,effort:1},1:{value:3,effort:3},2:{value:1,effort:1},3:{value:1,effort:3}};
+          const newVE=veMap[targetQ];
+          setPendingVEDrop({task:d.task,quadrantKey:targetQ,quadrantLabel:VE_QUADRANTS[targetQ].label,newValue:newVE.value,newEffort:newVE.effort});
+        }
+      } else {
+        if(onSelectRef.current) onSelectRef.current(d.task);
+      }
+      veDragRef.current=null;
+      setVeDragState(null);
+    };
+    container.addEventListener("mousedown",onDown);
+    window.addEventListener("mousemove",onMove);
+    window.addEventListener("mouseup",onUp);
+    return()=>{container.removeEventListener("mousedown",onDown);window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};
+  },[]);
 
   return (
     <div style={{width:"100%",height:"100%",display:"flex",gap:0}}>
       {/* Left 75%: quadrants */}
-      <div style={{flex:3,display:"flex",flexDirection:"column",gap:5,minWidth:0}}>
+      <div style={{flex:3,display:"flex",flexDirection:"column",gap:5,minWidth:0,position:"relative"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 4px",flexShrink:0}}>
           <span style={{fontSize:10,color:"#64748B",letterSpacing:1,fontWeight:600}}>← LOW EFFORT</span>
           <span style={{fontSize:10,color:"#64748B",letterSpacing:0.5,fontWeight:600}}>VALUE vs. EFFORT</span>
           <span style={{fontSize:10,color:"#64748B",letterSpacing:1,fontWeight:600}}>HIGH EFFORT →</span>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gridTemplateRows:"1.57fr 0.6fr",gap:10,flex:1,overflow:"visible"}}>
+        <div ref={veContainerRef} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gridTemplateRows:"1.57fr 0.6fr",gap:18,flex:1,overflow:"visible"}}>
           {[byQ[0],byQ[1],byQ[2],byQ[3]].map(q=>(
-            <div key={q.key} className="quadrant" style={{border:`1px solid ${q.border}`,background:q.bg}}>
-              <div style={{flexShrink:0,marginBottom:6}}>
-                <div className="q-label" style={{color:q.color,marginBottom:2}}>
-                  <div className="q-dot" style={{background:q.color}}/>
-                  {q.label}
-                  <span style={{color:"#475569",fontWeight:400,fontSize:9,letterSpacing:0.5,marginLeft:2}}>— {q.sub}</span>
-                  <span style={{marginLeft:"auto",fontSize:9,color:"#334155"}}>{q.tasks.length}</span>
+            <div key={q.key} className="quadrant" ref={el=>quadRefs.current[q.key]=el}
+              style={{border:`2px solid ${q.border}`,background:`linear-gradient(135deg, ${q.bg} 0%, rgba(15,23,42,0.95) 70%)`,boxShadow:`0 0 18px ${q.border}, inset 0 0 30px rgba(0,0,0,0.15)`,borderRadius:12}}>
+              <div style={{flexShrink:0,background:`linear-gradient(90deg, ${q.color}CC, ${q.color}88)`,borderRadius:"10px 10px 0 0",padding:"8px 14px",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:8,height:8,borderRadius:"50%",background:"white",opacity:0.9,flexShrink:0}}/>
+                  <span style={{fontSize:11,fontWeight:800,color:"white",letterSpacing:1.5,textTransform:"uppercase"}}>{q.label}</span>
+                  <span style={{fontSize:9,fontWeight:500,color:"rgba(255,255,255,0.7)",letterSpacing:0.3}}>— {q.sub}</span>
                 </div>
-                <div style={{fontSize:10,color:q.color,fontStyle:"italic",opacity:0.75,paddingLeft:14}}>{q.tag}</div>
+                <span style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.8)",background:"rgba(0,0,0,0.25)",borderRadius:10,padding:"2px 8px"}}>{q.tasks.length}</span>
               </div>
+              <div style={{padding:"0 12px 12px 12px",flex:1,display:"flex",flexDirection:"column"}}>
+              <div style={{fontSize:10,color:q.color,fontStyle:"italic",opacity:0.85,marginBottom:6}}>{q.tag}</div>
               {(()=>{
                 const n=q.tasks.length;
                 const compact=n>=6;
@@ -628,24 +803,25 @@ function ValueEffortMatrix({tasks,colorBy,onSelect,selectedId,showDetails}) {
                       const isHov=hovId===t.id;
                       const isSel=selectedId===t.id;
                       return (
-                        <div key={t.id} onClick={()=>onSelect(t)}
-                          onMouseEnter={()=>setHovId(t.id)} onMouseLeave={()=>setHovId(null)}
+                        <div key={t.id} data-task-id={String(t.id)}
+                          onMouseEnter={()=>{if(!veDragState)setHovId(t.id);}} onMouseLeave={()=>setHovId(null)}
                           style={{
-                            borderLeft:isHov?`4px solid ${getColor(t)}`:`3px solid ${getColor(t)}`,
-                            background:isSel?"rgba(59,130,246,0.12)":"#0F172A",
-                            borderRadius:isHov?8:compact?4:6,
-                            padding:isHov&&!twoCol?"10px 12px":pad,
-                            cursor:"pointer",
+                            borderLeft:(isHov&&!veDragState)?`4px solid ${getColor(t)}`:`3px solid ${getColor(t)}`,
+                            background:(veDragState?.task?.id===t.id&&veDragState?.active)?"rgba(59,130,246,0.08)":(isSel?"rgba(59,130,246,0.12)":"#0F172A"),
+                            borderRadius:(isHov&&!veDragState)?8:compact?4:6,
+                            padding:(isHov&&!veDragState&&!twoCol)?"10px 12px":pad,
+                            cursor:"grab",
                             width:twoCol?"calc(50% - 3px)":undefined,
                             flexShrink:twoCol?0:undefined,
-                            transition:"all 0.15s ease-out",
-                            transform:isHov?"scale(1.35) translateY(-4px)":"scale(1)",
+                            transition:(veDragState?.task?.id===t.id)?"none":"all 0.15s ease-out",
+                            transform:(isHov&&!veDragState)?"scale(1.35) translateY(-4px)":"scale(1)",
                             transformOrigin:twoCol?"center center":"left center",
-                            zIndex:isHov?50:1,
+                            zIndex:(isHov&&!veDragState)?50:1,
                             position:"relative",
-                            boxShadow:isHov?"0 16px 48px rgba(0,0,0,0.7), 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08)":"none",
-                            border:isHov?`2px solid ${getColor(t)}`:(isSel?"1px solid rgba(59,130,246,0.4)":"1px solid #1E293B"),
-                            borderLeft:isHov?`4px solid ${getColor(t)}`:`3px solid ${getColor(t)}`,
+                            opacity:(veDragState?.task?.id===t.id&&veDragState?.active)?0.4:1,
+                            boxShadow:(isHov&&!veDragState)?"0 16px 48px rgba(0,0,0,0.7), 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08)":"none",
+                            border:(isHov&&!veDragState)?`2px solid ${getColor(t)}`:(isSel?"1px solid rgba(59,130,246,0.4)":"1px solid #1E293B"),
+                            borderLeft:(isHov&&!veDragState)?`4px solid ${getColor(t)}`:`3px solid ${getColor(t)}`,
                           }}>
                           <div style={{fontSize:isHov?14:fs,fontWeight:600,color:"#F1F5F9",lineHeight:1.3,whiteSpace:isHov?"normal":(compact?"nowrap":"normal"),overflow:compact&&!isHov?"hidden":"visible",textOverflow:"ellipsis"}}>{t.name}</div>
                           {(isHov||showDetails)&&<div style={{display:"flex",gap:isHov?4:(compact?2:3),marginTop:isHov?5:(compact?2:3),flexWrap:compact&&!isHov?"nowrap":"wrap",overflow:compact&&!isHov?"hidden":"visible",alignItems:"center"}}>
@@ -662,6 +838,7 @@ function ValueEffortMatrix({tasks,colorBy,onSelect,selectedId,showDetails}) {
                   </div>
                 );
               })()}
+              </div>
             </div>
           ))}
         </div>
@@ -669,6 +846,22 @@ function ValueEffortMatrix({tasks,colorBy,onSelect,selectedId,showDetails}) {
           <span style={{fontSize:10,color:"#64748B",letterSpacing:1,fontWeight:600}}>↓ LOW VALUE</span>
           <span style={{fontSize:10,color:"#64748B",letterSpacing:1,fontWeight:600}}>HIGH VALUE ↑</span>
         </div>
+
+        {/* Floating ghost card while dragging */}
+        {veDragState&&veDragState.active&&(
+          <div style={{position:"fixed",left:veDragState.currentX+12,top:veDragState.currentY-16,background:"#1E293B",border:`2px solid ${getColor(veDragState.task)}`,borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:600,color:"#F1F5F9",pointerEvents:"none",zIndex:200,boxShadow:"0 8px 24px rgba(0,0,0,0.6)",maxWidth:200,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{veDragState.task.name}</div>
+        )}
+        {/* Confirmation overlay for VxE drag drop */}
+        {pendingVEDrop&&(
+          <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",background:"#1E293B",border:`2px solid ${pendingVEDrop.newValue>=2?"#10B981":"#64748B"}`,borderRadius:12,padding:20,zIndex:100,boxShadow:"0 12px 48px rgba(0,0,0,0.8)",minWidth:280,textAlign:"center"}}>
+            <div style={{fontSize:14,fontWeight:600,color:"#F1F5F9",marginBottom:8}}>{pendingVEDrop.task.name}</div>
+            <div style={{fontSize:12,color:"#94A3B8",marginBottom:16}}>Move to <strong>{pendingVEDrop.quadrantLabel}</strong>?</div>
+            <div style={{display:"flex",gap:12}}>
+              <button onClick={async()=>{if(onTaskUpdateRef.current)await onTaskUpdateRef.current(pendingVEDrop.task.id,{value:pendingVEDrop.newValue,effort:pendingVEDrop.newEffort});setPendingVEDrop(null);}} style={{flex:1,background:"#10B981",color:"white",border:"none",borderRadius:8,padding:"10px 16px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✓ Move</button>
+              <button onClick={()=>setPendingVEDrop(null)} style={{flex:1,background:"#EF4444",color:"white",border:"none",borderRadius:8,padding:"10px 16px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
       {/* Right 25%: Notes */}
       <div style={{flex:1,display:"flex",flexDirection:"column",borderLeft:"1px solid #1E293B",padding:"12px 14px",minWidth:0}}>
@@ -2571,7 +2764,7 @@ function MarketBuzzView(){
 }
 
 // ── Deal Pipeline View ────────────────────────────────────────────────────────
-function DealPipelineView() {
+function DealPipelineView({sbClient}) {
   const contRef=useRef(null);
   const [dims,setDims]=useState({w:900,h:500});
   const [hov,setHov]=useState(null);
@@ -2583,6 +2776,146 @@ function DealPipelineView() {
     });
     ro.observe(el); return()=>ro.disconnect();
   },[]);
+
+  // ── Pipeline data from Supabase (with DEAL_DATA fallback) ──
+  const [deals,setDeals]=useState(DEAL_DATA);
+  const [dealsSource,setDealsSource]=useState("hardcoded"); // "hardcoded" | "supabase"
+  const [dealsLoading,setDealsLoading]=useState(false);
+  // Load deals from Supabase on mount
+  useEffect(()=>{
+    if(!sbClient) return;
+    (async()=>{
+      setDealsLoading(true);
+      try{
+        const{data,error}=await sbClient.from("pipeline_deals").select("*").order("date",{ascending:true});
+        if(!error&&data&&data.length>0){
+          const mapped=data.map(r=>({account:r.account,date:r.date,amount:r.amount,trend:r.trend,status:r.status||"",sheet:r.sheet,notes:r.notes||""}));
+          setDeals(mapped);
+          setDealsSource("supabase");
+        }
+      }catch(e){console.log("pipeline_deals load error:",e);}
+      setDealsLoading(false);
+    })();
+  },[sbClient]);
+
+  // ── Spreadsheet upload state ──
+  const fileRef=useRef(null);
+  const [showUpload,setShowUpload]=useState(false);
+  const [parsedDeals,setParsedDeals]=useState(null);
+  const [uploadStatus,setUploadStatus]=useState(""); // "" | "parsing" | "preview" | "saving" | "done" | "error"
+  const [uploadError,setUploadError]=useState("");
+
+  const parseSpreadsheet=(file)=>{
+    setUploadStatus("parsing"); setUploadError("");
+    const reader=new FileReader();
+    reader.onload=(e)=>{
+      try{
+        const wb=XLSX.read(e.target.result,{type:"array"});
+        const allDeals=[];
+        // Map of tab names we care about
+        const tabMap={"Civ SLED":"Civ SLED","Civ/SLED":"Civ SLED","CivSLED":"Civ SLED","Postal":"Postal","DoD":"DoD","DOD":"DoD"};
+        wb.SheetNames.forEach(sn=>{
+          const sheetKey=Object.keys(tabMap).find(k=>sn.toLowerCase().includes(k.toLowerCase()));
+          const sheetLabel=sheetKey?tabMap[sheetKey]:sn;
+          const ws=wb.Sheets[sn];
+          const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+          if(rows.length<2) return;
+          // Find header row (look for "Account" or similar in first 5 rows)
+          let headerIdx=0;
+          for(let r=0;r<Math.min(5,rows.length);r++){
+            const row=rows[r].map(c=>String(c).toLowerCase());
+            if(row.some(c=>c.includes("account")||c.includes("deal")||c.includes("name"))){headerIdx=r;break;}
+          }
+          // Column mapping: A=account(0), H=amount(7), K=trend(10), O=notes(14)
+          for(let r=headerIdx+1;r<rows.length;r++){
+            const row=rows[r];
+            const account=String(row[0]||"").trim();
+            if(!account) continue;
+            const rawAmt=row[7]; // Column H
+            const amount=typeof rawAmt==="number"?rawAmt:parseFloat(String(rawAmt).replace(/[$,]/g,""))||0;
+            if(amount<=0) continue;
+            // Trend: column K - map text to number
+            const rawTrend=String(row[10]||"").trim().toLowerCase();
+            let trend=1; // default up
+            if(rawTrend.includes("down")||rawTrend==="3"||rawTrend.includes("↓")) trend=3;
+            else if(rawTrend.includes("stable")||rawTrend==="2"||rawTrend.includes("→")||rawTrend.includes("flat")) trend=2;
+            else if(rawTrend.includes("new")||rawTrend==="0"||rawTrend.includes("·")||rawTrend==="") trend=0;
+            else if(rawTrend.includes("up")||rawTrend==="1"||rawTrend.includes("↑")) trend=1;
+            else{const n=parseInt(rawTrend);if(!isNaN(n)&&n>=0&&n<=3) trend=n;}
+            // Date: look in multiple columns for a date
+            let date="";
+            for(const ci of [3,4,5,6]){
+              const v=row[ci];
+              if(v instanceof Date){date=v.toISOString().slice(0,10);break;}
+              if(typeof v==="number"&&v>40000&&v<60000){
+                // Excel serial date
+                const d=new Date((v-25569)*86400000);
+                date=d.toISOString().slice(0,10);break;
+              }
+              const s=String(v||"").trim();
+              if(/^\d{4}-\d{2}-\d{2}$/.test(s)){date=s;break;}
+              const pd=new Date(s);
+              if(!isNaN(pd.getTime())&&pd.getFullYear()>2020){date=pd.toISOString().slice(0,10);break;}
+            }
+            if(!date) date=new Date().toISOString().slice(0,10);
+            // Status: look in a few columns
+            let status="";
+            for(const ci of [1,2,8,9]){
+              const s=String(row[ci]||"").trim();
+              if(s.toLowerCase().includes("closed")){status="CLOSED!";break;}
+              if(s.toLowerCase().includes("commit")){status="Commit";break;}
+              if(s.toLowerCase().includes("pipeline")){status="Pipeline";break;}
+            }
+            const notes=String(row[14]||"").trim(); // Column O
+            allDeals.push({account,date,amount,trend,status,sheet:sheetLabel,notes});
+          }
+        });
+        if(allDeals.length===0){
+          setUploadError("No deals found. Check that your spreadsheet has data in the expected columns (A=Account, H=Amount, K=Trend, O=Notes).");
+          setUploadStatus("error");
+          return;
+        }
+        setParsedDeals(allDeals);
+        setUploadStatus("preview");
+      }catch(err){
+        setUploadError("Error parsing spreadsheet: "+err.message);
+        setUploadStatus("error");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const saveToSupabase=async()=>{
+    if(!sbClient||!parsedDeals) return;
+    setUploadStatus("saving");
+    try{
+      // Clear existing pipeline deals
+      await sbClient.from("pipeline_deals").delete().neq("id",0);
+      // Insert new deals in batches of 50
+      for(let i=0;i<parsedDeals.length;i+=50){
+        const batch=parsedDeals.slice(i,i+50).map(d=>({
+          account:d.account, date:d.date, amount:d.amount, trend:d.trend,
+          status:d.status, sheet:d.sheet, notes:d.notes
+        }));
+        const{error}=await sbClient.from("pipeline_deals").insert(batch);
+        if(error) throw error;
+      }
+      setDeals(parsedDeals);
+      setDealsSource("supabase");
+      setUploadStatus("done");
+      setTimeout(()=>{setShowUpload(false);setUploadStatus("");setParsedDeals(null);},1500);
+    }catch(err){
+      setUploadError("Error saving to database: "+err.message);
+      setUploadStatus("error");
+    }
+  };
+
+  const [pipelineTab,setPipelineTab]=useState("All");
+  const sheetTabs=useMemo(()=>{
+    const sheets=[...new Set(deals.map(d=>d.sheet).filter(Boolean))];
+    return ["All",...sheets];
+  },[deals]);
+  const filteredDeals=useMemo(()=>deals.map((d,i)=>({...d,_i:i})).filter(d=>pipelineTab==="All"||d.sheet===pipelineTab),[pipelineTab,deals]);
 
   const dealR=amt=>amt<150000?16:amt<350000?22:amt<800000?28:amt<2000000?34:40;
   const DEAL_TIERS=[{label:'< $150K',r:16},{label:'$150K–350K',r:22},{label:'$350K–800K',r:28},{label:'$800K–2M',r:34},{label:'> $2M',r:40}];
@@ -2604,7 +2937,7 @@ function DealPipelineView() {
     const toX=ms=>PAD.l+(ms-T0)/tRange*chartW;
     const toY=amt=>PAD.t+(LOG_HI-Math.log(Math.max(amt,50000)))/logRange*chartH;
     // Natural positions with per-dot radius
-    let pts=DEAL_DATA.map((d,i)=>{
+    let pts=filteredDeals.map((d,i)=>{
       const r=dealR(d.amount);
       return {i, r,
         x:toX(new Date(d.date).getTime()), y:toY(d.amount),
@@ -2617,7 +2950,7 @@ function DealPipelineView() {
       let anyMove=false;
       for(let a=0;a<pts.length;a++){
         for(let b=a+1;b<pts.length;b++){
-          const da=DEAL_DATA[a], db=DEAL_DATA[b];
+          const da=filteredDeals[a], db=filteredDeals[b];
           const siblings=da.sheet&&db.sheet&&da.sheet===db.sheet&&da.date===db.date;
           const dx=pts[b].x-pts[a].x, dy=pts[b].y-pts[a].y;
           const dist=Math.sqrt(dx*dx+dy*dy);
@@ -2654,7 +2987,7 @@ function DealPipelineView() {
     }));
     const todayX=toX(new Date().getTime());
     return {pts,months,yLines,chartW,chartH,todayX};
-  },[dims]);
+  },[dims,pipelineTab,filteredDeals]);
 
   const {pts,months,yLines,chartW,chartH,todayX}=computed;
   return (
@@ -2662,6 +2995,25 @@ function DealPipelineView() {
       {/* Legend */}
       <div style={{flexShrink:0,marginBottom:6,display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
         <span style={{fontSize:11,fontWeight:700,color:'#64748B',letterSpacing:0.8}}>DEAL PIPELINE — Close Date × Deal Size</span>
+        <div style={{display:'flex',gap:4,marginLeft:8}}>
+          {sheetTabs.map(tab=>(
+            <button key={tab} onClick={()=>setPipelineTab(tab)}
+              style={{padding:'4px 12px',borderRadius:6,border:`1px solid ${pipelineTab===tab?'#3B82F6':'#334155'}`,
+                background:pipelineTab===tab?'#3B82F6':'transparent',color:pipelineTab===tab?'white':'#64748B',
+                fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'inherit',letterSpacing:0.5}}>
+              {tab}
+            </button>
+          ))}
+        </div>
+        <button onClick={()=>{setShowUpload(true);setUploadStatus("");setParsedDeals(null);setUploadError("");}}
+          style={{padding:'4px 12px',borderRadius:6,border:'1px solid #10B981',background:'transparent',
+            color:'#10B981',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'inherit',letterSpacing:0.5,marginLeft:4}}
+          title="Upload new spreadsheet data">
+          ↑ Upload
+        </button>
+        {dealsSource==="supabase"&&<span style={{fontSize:9,color:'#10B981',fontWeight:600}}>● Live from DB</span>}
+        {dealsSource==="hardcoded"&&<span style={{fontSize:9,color:'#F59E0B',fontWeight:600}}>● Hardcoded data</span>}
+        {dealsLoading&&<span style={{fontSize:9,color:'#64748B'}}>Loading...</span>}
         <div style={{display:'flex',gap:12}}>
           {[['CLOSED!','#10B981'],['Commit','#3B82F6'],['Pipeline','#F59E0B'],['Active','#64748B']].map(([l,c])=>(
             <div key={l} style={{display:'flex',alignItems:'center',gap:4}}>
@@ -2673,6 +3025,10 @@ function DealPipelineView() {
           <div style={{display:'flex',alignItems:'center',gap:4}}>
             <svg width={16} height={16}><circle cx={8} cy={8} r={6} fill="none" stroke="#3B82F6" strokeWidth={1.5} strokeDasharray="3,2"/></svg>
             <span style={{fontSize:10,color:'#64748B'}}>Postal</span>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:4}}>
+            <svg width={16} height={16}><circle cx={8} cy={8} r={6} fill="none" stroke="#F59E0B" strokeWidth={2}/><circle cx={8} cy={8} r={3.5} fill="none" stroke="#F59E0B" strokeWidth={1}/></svg>
+            <span style={{fontSize:10,color:'#64748B'}}>DoD</span>
           </div>
         </div>
         <div style={{display:'flex',gap:10,alignItems:'center'}}>
@@ -2729,12 +3085,12 @@ function DealPipelineView() {
           {/* Connector lines from natural y to bumped y */}
           {pts.map((p,i)=>{
             if(Math.abs(p.y-p.ny)<4) return null;
-            const col=statusColor(DEAL_DATA[i].status);
+            const col=statusColor(filteredDeals[i].status);
             return <line key={i} x1={p.x} y1={p.ny} x2={p.x} y2={p.y} stroke={col} strokeWidth={1} strokeDasharray="3,3" opacity={0.3}/>;
           })}
           {/* Deal dots + labels */}
           {pts.map((p,i)=>{
-            const d=DEAL_DATA[i];
+            const d=filteredDeals[i];
             const r=p.r;
             const col=statusColor(d.status);
             const isHov=hov===i;
@@ -2746,6 +3102,7 @@ function DealPipelineView() {
                 <circle cx={p.x} cy={p.y} r={r} fill="#0F172A" stroke={col} strokeWidth={isHov?2.5:1.8}
                   strokeDasharray={d.sheet==='Postal'?`${Math.round(r*0.4)},${Math.round(r*0.2)}`:undefined}/>
                 {d.sheet==='Postal'&&<circle cx={p.x} cy={p.y} r={r-4} fill="none" stroke={col} strokeWidth={0.7} opacity={0.35}/>}
+                {d.sheet==='DoD'&&<circle cx={p.x} cy={p.y} r={r+4} fill="none" stroke={col} strokeWidth={1} opacity={0.25} strokeDasharray="2,2"/>}
                 <text x={p.x} y={p.y+1} textAnchor="middle" dominantBaseline="middle" fontSize={arrowSize} fill={trendColor(d.trend)} fontWeight="bold" fontFamily="inherit">{trendIcon(d.trend)}</text>
                 {/* Account name */}
                 <text x={p.x} y={labelBelow?p.y+r+12:p.y-r-6}
@@ -2772,8 +3129,8 @@ function DealPipelineView() {
             textAnchor="middle" fontSize={9} fill="#475569" fontWeight="600" fontFamily="inherit">DEAL SIZE</text>
           <text x={PAD.l+chartW/2} y={PAD.t+chartH+55} textAnchor="middle" fontSize={9} fill="#475569" fontWeight="600" fontFamily="inherit">CLOSE DATE</text>
           {/* Hover tooltip with Notes/Next Steps */}
-          {hov!==null&&DEAL_DATA[hov].notes&&(()=>{
-            const d=DEAL_DATA[hov], p=pts[hov], r=p.r;
+          {hov!==null&&filteredDeals[hov]&&filteredDeals[hov].notes&&(()=>{
+            const d=filteredDeals[hov], p=pts[hov], r=p.r;
             const col=statusColor(d.status);
             const tw=280, maxTH=180;
             // Position: prefer right of dot; flip left if near right edge; above/below based on y
@@ -2801,6 +3158,103 @@ function DealPipelineView() {
           })()}
         </svg>
       </div>
+      {/* Upload Modal */}
+      {showUpload&&(
+        <div className="modal-overlay" onClick={()=>{if(uploadStatus!=="saving")setShowUpload(false);}}>
+          <div className="modal" style={{width:620,maxHeight:'85vh'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+              <span style={{fontSize:16,fontWeight:800}}>Upload Pipeline Spreadsheet</span>
+              <button className="btn btn-ghost" onClick={()=>setShowUpload(false)} style={{padding:'4px 8px',fontSize:16,lineHeight:1}}>×</button>
+            </div>
+            {uploadStatus===""&&(
+              <div>
+                <div style={{border:'2px dashed #334155',borderRadius:12,padding:32,textAlign:'center',marginBottom:16,cursor:'pointer',transition:'border-color 0.15s'}}
+                  onClick={()=>fileRef.current&&fileRef.current.click()}
+                  onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor='#3B82F6';}}
+                  onDragLeave={e=>{e.currentTarget.style.borderColor='#334155';}}
+                  onDrop={e=>{e.preventDefault();e.currentTarget.style.borderColor='#334155';const f=e.dataTransfer.files[0];if(f)parseSpreadsheet(f);}}>
+                  <div style={{fontSize:32,marginBottom:8}}>📊</div>
+                  <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>Drop your Excel file here</div>
+                  <div style={{fontSize:12,color:'#64748B'}}>or click to browse — supports .xlsx, .xls, .csv</div>
+                </div>
+                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:'none'}}
+                  onChange={e=>{const f=e.target.files[0];if(f)parseSpreadsheet(f);}}/>
+                <div style={{fontSize:11,color:'#64748B',lineHeight:1.6}}>
+                  <strong style={{color:'#94A3B8'}}>Expected columns:</strong> A = Account Name, H = Deal Amount, K = Trend Arrow, O = Notes.
+                  Dates are auto-detected from columns D–G. Each sheet tab becomes a filter category.
+                </div>
+              </div>
+            )}
+            {uploadStatus==="parsing"&&(
+              <div style={{textAlign:'center',padding:32}}>
+                <div style={{fontSize:24,marginBottom:8}}>⏳</div>
+                <div style={{fontSize:14,color:'#94A3B8'}}>Parsing spreadsheet...</div>
+              </div>
+            )}
+            {uploadStatus==="preview"&&parsedDeals&&(
+              <div>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+                  <span style={{fontSize:13,fontWeight:700,color:'#10B981'}}>✓ Found {parsedDeals.length} deals</span>
+                  <span style={{fontSize:11,color:'#64748B'}}>across {[...new Set(parsedDeals.map(d=>d.sheet))].join(", ")}</span>
+                </div>
+                <div style={{maxHeight:320,overflowY:'auto',border:'1px solid #334155',borderRadius:8,marginBottom:16}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                    <thead>
+                      <tr style={{background:'#0F172A',position:'sticky',top:0}}>
+                        <th style={{padding:'8px 10px',textAlign:'left',color:'#64748B',fontWeight:700,borderBottom:'1px solid #334155'}}>Account</th>
+                        <th style={{padding:'8px 10px',textAlign:'left',color:'#64748B',fontWeight:700,borderBottom:'1px solid #334155'}}>Sheet</th>
+                        <th style={{padding:'8px 10px',textAlign:'right',color:'#64748B',fontWeight:700,borderBottom:'1px solid #334155'}}>Amount</th>
+                        <th style={{padding:'8px 10px',textAlign:'center',color:'#64748B',fontWeight:700,borderBottom:'1px solid #334155'}}>Date</th>
+                        <th style={{padding:'8px 10px',textAlign:'center',color:'#64748B',fontWeight:700,borderBottom:'1px solid #334155'}}>Trend</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parsedDeals.map((d,i)=>(
+                        <tr key={i} style={{borderBottom:'1px solid #1E293B'}}>
+                          <td style={{padding:'6px 10px',color:'#E2E8F0',fontWeight:600}}>{d.account}</td>
+                          <td style={{padding:'6px 10px',color:'#94A3B8'}}>{d.sheet}</td>
+                          <td style={{padding:'6px 10px',textAlign:'right',color:'#3B82F6',fontWeight:600}}>{fmtAmt(d.amount)}</td>
+                          <td style={{padding:'6px 10px',textAlign:'center',color:'#64748B'}}>{d.date}</td>
+                          <td style={{padding:'6px 10px',textAlign:'center',fontSize:14}}>{trendIcon(d.trend)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+                  <button className="btn btn-ghost" onClick={()=>{setUploadStatus("");setParsedDeals(null);}}>Back</button>
+                  {sbClient
+                    ?<button className="btn btn-primary" onClick={saveToSupabase}>Save {parsedDeals.length} Deals to Database</button>
+                    :<button className="btn btn-primary" onClick={()=>{setDeals(parsedDeals);setDealsSource("uploaded");setShowUpload(false);setUploadStatus("");setParsedDeals(null);}}>Use Data (Session Only)</button>
+                  }
+                </div>
+                {!sbClient&&<div style={{fontSize:10,color:'#F59E0B',marginTop:8}}>⚠ Supabase not connected — data will only persist for this browser session. Connect Supabase in Settings to save permanently.</div>}
+              </div>
+            )}
+            {uploadStatus==="saving"&&(
+              <div style={{textAlign:'center',padding:32}}>
+                <div style={{fontSize:24,marginBottom:8}}>💾</div>
+                <div style={{fontSize:14,color:'#94A3B8'}}>Saving {parsedDeals?parsedDeals.length:0} deals to database...</div>
+              </div>
+            )}
+            {uploadStatus==="done"&&(
+              <div style={{textAlign:'center',padding:32}}>
+                <div style={{fontSize:32,marginBottom:8}}>✅</div>
+                <div style={{fontSize:16,fontWeight:700,color:'#10B981'}}>Pipeline Updated!</div>
+                <div style={{fontSize:12,color:'#64748B',marginTop:4}}>{deals.length} deals saved to Supabase</div>
+              </div>
+            )}
+            {uploadStatus==="error"&&(
+              <div>
+                <div style={{padding:16,background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,marginBottom:16}}>
+                  <div style={{fontSize:12,color:'#EF4444',fontWeight:600}}>{uploadError}</div>
+                </div>
+                <button className="btn btn-ghost" onClick={()=>{setUploadStatus("");setUploadError("");}}>Try Again</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3059,6 +3513,22 @@ function App() {
     if(sbStatus==="connected"&&sbClientRef.current) saveSnapshot(sbClientRef.current, tasks.filter(t=>t.id!==id), sbUserEmail);
   };
 
+  // Handle drag-and-drop updates from Rings and VxE views
+  const handleDragUpdate=async(taskId,changes)=>{
+    const task=tasks.find(t=>t.id===taskId);
+    if(!task) return;
+    const updated={...task,...changes};
+    if(sbStatus==="connected"&&sbClientRef.current){
+      const{data,error}=await sbClientRef.current.from("tasks").update(toRow(updated)).eq("id",taskId).select().single();
+      if(error) return;
+      if(data){const a=toApp(data);setTasks(ts=>ts.map(t=>t.id===taskId?a:t));if(selected?.id===taskId)setSelected(a);}
+      saveSnapshot(sbClientRef.current,tasks,sbUserEmail);
+    }else{
+      setTasks(ts=>ts.map(t=>t.id===taskId?updated:t));
+      if(selected?.id===taskId)setSelected(updated);
+    }
+  };
+
   const FB=({label,val,cur,set})=>(
     <button onClick={()=>set(v=>v===val?"All":val)} style={{padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,letterSpacing:0.3,background:cur===val?"#3B82F6":"#1E293B",color:cur===val?"white":"#64748B",transition:"all 0.15s"}}>{label}</button>
   );
@@ -3219,14 +3689,14 @@ function App() {
         {view==="diamond"&&<DiamondView/>}
         {view==="dailylog"&&<DailyLogView jumpDate={logJumpDate} clearJump={()=>setLogJumpDate(null)} sbClient={sbClientRef.current} sbStatus={sbStatus}/>}
         {view==="marketbuzz"&&<MarketBuzzView/>}
-        {view==="pipeline"&&<DealPipelineView/>}
+        {view==="pipeline"&&<DealPipelineView sbClient={sbClientRef.current}/>}
         {view==="tasks"&&<TasksGrid tasks={filtered} colorBy={colorBy} onSelect={handleSelect} selectedId={selected?.id}/>}
         {/* Main visualization area — hidden on special views */}
         {view!=="diamond"&&view!=="tasks"&&view!=="dailylog"&&view!=="marketbuzz"&&view!=="pipeline"&&<div style={{flex:2,minHeight:0,display:"flex",flexDirection:"column",overflow:"hidden",padding: view==="circles"?"8px 12px 4px":"10px 16px 6px"}}>
           <div style={vizStyle}>
-            {view==="circles"    && <Circles tasks={filtered} colorBy={colorBy} onSelect={handleSelect} selectedId={selected?.id} showAll={showAll} hovId={circlesHovId} onHover={setCirclesHovId} onDotPositions={p=>{dotPosRef.current=p;}}/>}
+            {view==="circles"    && <Circles tasks={filtered} colorBy={colorBy} onSelect={handleSelect} selectedId={selected?.id} showAll={showAll} hovId={circlesHovId} onHover={setCirclesHovId} onDotPositions={p=>{dotPosRef.current=p;}} onTaskUpdate={handleDragUpdate}/>}
             {view==="eisenhower"  && <Matrix tasks={filtered} colorBy={colorBy} onSelect={handleSelect} selectedId={selected?.id} showDetails={showDetails}/>}
-            {view==="valueeffort" && <ValueEffortMatrix tasks={filtered} colorBy={colorBy} onSelect={handleSelect} selectedId={selected?.id} showDetails={showDetails}/>}
+            {view==="valueeffort" && <ValueEffortMatrix tasks={filtered} colorBy={colorBy} onSelect={handleSelect} selectedId={selected?.id} showDetails={showDetails} onTaskUpdate={handleDragUpdate}/>}
             {view==="timeline"    && <TimelineView tasks={filtered} colorBy={colorBy} onSelect={handleSelect} selectedId={selected?.id} showAll={showAll} sbClient={sbClientRef.current} sbStatus={sbStatus}/>}
           </div>
           <div style={{flexShrink:0,padding:"6px 0 2px"}}><Legend colorBy={colorBy}/></div>
@@ -3243,6 +3713,8 @@ function App() {
       {showForm&&<TaskForm form={form} setForm={setForm} onSave={handleSave} onCancel={()=>{setShowForm(false);setEditingId(null);setSaveErr("");}} isEditing={editingId!==null} team={team} onAddPerson={addPerson} saveErr={saveErr}/>}
 
       {sbStatus==="connected"&&<button onClick={async()=>{
+        const ans=prompt("Security Question: What is your mother's middle name?");
+        if(!ans||ans.trim().toLowerCase()!=="elizabeth"){if(ans!==null)alert("Incorrect answer.");return;}
         setShowRollback(true);setRollbackMsg("");
         const{data}=await sbClientRef.current.from("task_snapshots").select("*").order("created_at",{ascending:false}).limit(50);
         setSnapshots(data||[]);
@@ -3354,6 +3826,19 @@ create table meetings (
 );
 create index idx_meetings_date on meetings(meeting_date);
 alter publication supabase_realtime add table meetings;
+
+create table pipeline_deals (
+  id bigserial primary key,
+  account text not null,
+  date text not null,
+  amount numeric default 0,
+  trend int default 1,
+  status text default '',
+  sheet text default '',
+  notes text default '',
+  created_at timestamptz default now()
+);
+create index idx_pipeline_deals_sheet on pipeline_deals(sheet);
 
 create table task_snapshots (
   id bigserial primary key,
