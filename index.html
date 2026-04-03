@@ -2192,8 +2192,10 @@ const PLAUD_MEETINGS={
 ]
 };
 
-const LS_BUZZ_SOURCES="pm_buzz_sources", LS_BUZZ_THEMES="pm_buzz_themes", LS_BUZZ_CACHE="pm_buzz_cache_v2";
+const LS_BUZZ_SOURCES="pm_buzz_sources", LS_BUZZ_THEMES="pm_buzz_themes", LS_BUZZ_CACHE="pm_buzz_cache_v3";
 const LS_BUZZ_SEARCHES="pm_buzz_searches", LS_NEWS_API_KEY="pm_news_api_key";
+const LS_BUZZ_STARS="pm_buzz_stars", LS_BUZZ_NOTES="pm_buzz_notes";
+const BUZZ_EXPIRY_DAYS=14;
 function loadLocal(){
   try{
     const t=localStorage.getItem(LS_TASKS);
@@ -2502,7 +2504,7 @@ const DEFAULT_BUZZ_THEMES=["AI","zero trust","FedRAMP","cybersecurity","SaaS","c
 const BUZZ_CAT_COLORS={"AI / SaaS":"#3B82F6","Competitive":"#10B981","Federal IT":"#8B5CF6","Cybersecurity":"#EF4444","Custom":"#F59E0B","Search":"#06B6D4"};
 const BUZZ_CHIP={padding:"3px 10px",borderRadius:20,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,letterSpacing:0.3,transition:"all 0.15s",fontFamily:"inherit"};
 
-function MarketBuzzView(){
+function MarketBuzzView({sbClient,sbStatus}){
   const todayStr=new Date().toISOString().slice(0,10);
   const [sources,setSources]=useState(()=>{try{const s=JSON.parse(localStorage.getItem(LS_BUZZ_SOURCES));return s&&s.length?s:DEFAULT_BUZZ_SOURCES;}catch(e){return DEFAULT_BUZZ_SOURCES;}});
   const [searches,setSearches]=useState(()=>{try{const s=JSON.parse(localStorage.getItem(LS_BUZZ_SEARCHES));return s&&s.length?s:DEFAULT_BUZZ_SEARCHES;}catch(e){return DEFAULT_BUZZ_SEARCHES;}});
@@ -2523,6 +2525,128 @@ function MarketBuzzView(){
   const [newQLabel,setNewQLabel]=useState("");
   const [newQuery,setNewQuery]=useState("");
   const [newTheme,setNewTheme]=useState("");
+  // Stars & notes
+  const [stars,setStars]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_BUZZ_STARS)||"{}");}catch(e){return {};}});
+  const [notes,setNotes]=useState(()=>{try{return JSON.parse(localStorage.getItem(LS_BUZZ_NOTES)||"{}");}catch(e){return {};}});
+  const [showStarred,setShowStarred]=useState(false);
+  const [noteEditing,setNoteEditing]=useState(null); // article id being edited
+  const [noteDraft,setNoteDraft]=useState("");
+  const [shareMenu,setShareMenu]=useState(null); // article id with open share menu
+
+  // ── Load stars & notes from Supabase on mount ──
+  useEffect(()=>{
+    if(sbStatus!=="connected"||!sbClient) return;
+    (async()=>{
+      try{
+        const{data,error}=await sbClient.from("buzz_bookmarks").select("*");
+        if(!error&&data&&data.length>0){
+          const sObj={}, nObj={};
+          data.forEach(row=>{
+            if(row.starred) sObj[row.article_id]={at:new Date(row.starred_at||row.created_at).getTime(),dbId:row.id};
+            if(row.note) nObj[row.article_id]={text:row.note,at:new Date(row.updated_at||row.created_at).getTime(),dbId:row.id};
+            // Store dbId on both for updates
+            if(!sObj[row.article_id]) sObj[row.article_id]={dbId:row.id};
+            if(sObj[row.article_id]&&!sObj[row.article_id].at&&!row.starred) delete sObj[row.article_id];
+          });
+          // Merge with localStorage (Supabase wins)
+          setStars(prev=>{const merged={...prev,...sObj};try{localStorage.setItem(LS_BUZZ_STARS,JSON.stringify(merged));}catch(e){}return merged;});
+          setNotes(prev=>{const merged={...prev,...nObj};try{localStorage.setItem(LS_BUZZ_NOTES,JSON.stringify(merged));}catch(e){}return merged;});
+        }
+      }catch(e){console.log("buzz_bookmarks load error:",e);}
+    })();
+  },[sbClient,sbStatus]);
+
+  // ── Helper: upsert a bookmark to Supabase ──
+  const upsertBookmark=async(articleId,fields)=>{
+    if(sbStatus!=="connected"||!sbClient) return;
+    try{
+      // Check if row exists
+      const{data:existing}=await sbClient.from("buzz_bookmarks").select("id").eq("article_id",articleId).limit(1);
+      if(existing&&existing.length>0){
+        await sbClient.from("buzz_bookmarks").update({...fields,updated_at:new Date().toISOString()}).eq("id",existing[0].id);
+      }else{
+        // Find article info for context
+        const art=articles.find(a=>a.id===articleId);
+        await sbClient.from("buzz_bookmarks").insert({
+          article_id:articleId,
+          title:art?.title||"",
+          link:art?.link||"",
+          source:art?.source||"",
+          ...fields
+        });
+      }
+    }catch(e){console.log("buzz bookmark upsert error:",e);}
+  };
+
+  // ── Helper: delete a bookmark from Supabase ──
+  const deleteBookmark=async(articleId)=>{
+    if(sbStatus!=="connected"||!sbClient) return;
+    try{await sbClient.from("buzz_bookmarks").delete().eq("article_id",articleId);}catch(e){}
+  };
+
+  const toggleStar=(aid,e)=>{
+    e.preventDefault();e.stopPropagation();
+    setStars(prev=>{
+      const next={...prev};
+      if(next[aid]&&next[aid].at){
+        delete next[aid];
+        // If no note either, delete the row
+        if(!notes[aid]) deleteBookmark(aid);
+        else upsertBookmark(aid,{starred:false,starred_at:null});
+      }else{
+        next[aid]={at:Date.now()};
+        upsertBookmark(aid,{starred:true,starred_at:new Date().toISOString()});
+      }
+      try{localStorage.setItem(LS_BUZZ_STARS,JSON.stringify(next));}catch(e){}
+      return next;
+    });
+  };
+  const saveNote=(aid)=>{
+    const text=noteDraft.trim();
+    setNotes(prev=>{
+      const next={...prev};
+      if(text){
+        next[aid]={text,at:Date.now()};
+        upsertBookmark(aid,{note:text});
+      }else{
+        delete next[aid];
+        // If not starred either, delete the row
+        if(!stars[aid]||!stars[aid].at) deleteBookmark(aid);
+        else upsertBookmark(aid,{note:null});
+      }
+      try{localStorage.setItem(LS_BUZZ_NOTES,JSON.stringify(next));}catch(e){}
+      return next;
+    });
+    setNoteEditing(null);setNoteDraft("");
+  };
+  const openNote=(aid,e)=>{
+    e.preventDefault();e.stopPropagation();
+    setNoteEditing(aid);setNoteDraft(notes[aid]?.text||"");setShareMenu(null);
+  };
+  const openShare=(aid,e)=>{
+    e.preventDefault();e.stopPropagation();
+    setShareMenu(prev=>prev===aid?null:aid);setNoteEditing(null);
+  };
+  const shareViaEmail=(a,e)=>{
+    e.preventDefault();e.stopPropagation();
+    const subj=encodeURIComponent(a.title);
+    const noteText=notes[a.id]?.text?"\n\nMy notes: "+notes[a.id].text:"";
+    const body=encodeURIComponent(`Check out this article:\n\n${a.title}\n${a.link}${noteText}`);
+    window.open(`mailto:?subject=${subj}&body=${body}`,"_blank");
+    setShareMenu(null);
+  };
+  const shareViaSMS=(a,e)=>{
+    e.preventDefault();e.stopPropagation();
+    const noteText=notes[a.id]?.text?" - "+notes[a.id].text:"";
+    const body=encodeURIComponent(`${a.title}\n${a.link}${noteText}`);
+    window.open(`sms:?body=${body}`,"_blank");
+    setShareMenu(null);
+  };
+  const copyLink=(a,e)=>{
+    e.preventDefault();e.stopPropagation();
+    navigator.clipboard.writeText(a.link).catch(()=>{});
+    setShareMenu(null);
+  };
 
   useEffect(()=>{
     try{
@@ -2604,14 +2728,25 @@ function MarketBuzzView(){
     // Deduplicate by title similarity
     const seen=new Set();
     const deduped=fetched.filter(a=>{const k=a.title.slice(0,60).toLowerCase();if(seen.has(k))return false;seen.add(k);return true;});
-    setArticles(deduped);setLastDate(todayStr);setFetchErrs(errs);
-    try{localStorage.setItem(LS_BUZZ_CACHE,JSON.stringify({date:todayStr,articles:deduped}));}catch(e){}
+    // Apply 2-week expiry: keep starred articles forever, drop unstarred older than 14 days
+    const expiryCutoff=Date.now()-BUZZ_EXPIRY_DAYS*86400000;
+    const filtered=deduped.filter(a=>{
+      if(stars[a.id]) return true;
+      try{const pubTime=new Date(a.pub).getTime();return pubTime>expiryCutoff;}catch(e){return true;}
+    });
+    setArticles(filtered);setLastDate(todayStr);setFetchErrs(errs);
+    try{localStorage.setItem(LS_BUZZ_CACHE,JSON.stringify({date:todayStr,articles:filtered}));}catch(e){}
     setLoading(false);
   };
 
   const matchT=(a,t)=>(a.title+" "+a.desc).toLowerCase().includes(t.toLowerCase());
   const activeSrcIds=new Set(["All","search",...sources.filter(s=>s.on).map(s=>s.id)]);
-  const visible=articles.filter(a=>(filterSrc==="All"||(filterSrc==="search"&&a.srcId==="search")||a.srcId===filterSrc)&&(filterTheme==="All"||matchT(a,filterTheme)));
+  const starredCount=articles.filter(a=>stars[a.id]).length;
+  const baseFiltered=articles.filter(a=>{
+    if(showStarred) return !!stars[a.id];
+    return (filterSrc==="All"||(filterSrc==="search"&&a.srcId==="search")||a.srcId===filterSrc)&&(filterTheme==="All"||matchT(a,filterTheme));
+  });
+  const visible=baseFiltered;
   const searchCount=articles.filter(a=>a.srcId==="search").length;
   const fmtPub=s=>{try{const d=new Date(s);const diff=(Date.now()-d)/1000;if(diff<3600)return`${Math.round(diff/60)}m ago`;if(diff<86400)return`${Math.round(diff/3600)}h ago`;return d.toLocaleDateString("en-US",{month:"short",day:"numeric"});}catch(e){return "";}};
   const STab=({id,label})=><button onClick={()=>setSettingsTab(id)} style={{flex:1,padding:"5px 0",fontSize:11,fontWeight:700,border:"none",borderRadius:5,cursor:"pointer",fontFamily:"inherit",background:settingsTab===id?"#3B82F6":"transparent",color:settingsTab===id?"white":"#64748B"}}>{label}</button>;
@@ -2620,12 +2755,16 @@ function MarketBuzzView(){
     <div style={{display:"flex",flex:1,minHeight:0,overflow:"hidden",flexDirection:"column"}}>
       {/* Filter bar */}
       <div style={{background:"#0F172A",borderBottom:"1px solid #1E293B",padding:"7px 16px",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",flexShrink:0}}>
+        <button onClick={()=>{setShowStarred(false);setFilterSrc("All");}} style={{...BUZZ_CHIP,background:!showStarred&&filterSrc==="All"?"#3B82F6":"#1E293B",color:!showStarred&&filterSrc==="All"?"white":"#64748B"}}>All</button>
+        <button onClick={()=>setShowStarred(v=>!v)} style={{...BUZZ_CHIP,background:showStarred?"#F59E0B":"#1E293B",color:showStarred?"#0F172A":"#64748B",fontWeight:700}}>
+          {showStarred?"★":"☆"} Starred{starredCount>0?` (${starredCount})`:""}
+        </button>
+        <div style={{width:1,height:14,background:"#334155",margin:"0 3px"}}/>
         <span style={{fontSize:9,color:"#334155",fontWeight:700,letterSpacing:1}}>SOURCE</span>
-        <button onClick={()=>setFilterSrc("All")} style={{...BUZZ_CHIP,background:filterSrc==="All"?"#3B82F6":"#1E293B",color:filterSrc==="All"?"white":"#64748B"}}>All</button>
         {sources.filter(s=>s.on).map(s=>(
-          <button key={s.id} onClick={()=>setFilterSrc(p=>p===s.id?"All":s.id)} style={{...BUZZ_CHIP,background:filterSrc===s.id?"#3B82F6":"#1E293B",color:filterSrc===s.id?"white":"#64748B"}}>{s.label}</button>
+          <button key={s.id} onClick={()=>{setShowStarred(false);setFilterSrc(p=>p===s.id?"All":s.id);}} style={{...BUZZ_CHIP,background:!showStarred&&filterSrc===s.id?"#3B82F6":"#1E293B",color:!showStarred&&filterSrc===s.id?"white":"#64748B"}}>{s.label}</button>
         ))}
-        {searchCount>0&&<button onClick={()=>setFilterSrc(p=>p==="search"?"All":"search")} style={{...BUZZ_CHIP,background:filterSrc==="search"?"#06B6D4":"#1E293B",color:filterSrc==="search"?"white":"#64748B"}}>🔍 Search Results ({searchCount})</button>}
+        {searchCount>0&&<button onClick={()=>{setShowStarred(false);setFilterSrc(p=>p==="search"?"All":"search");}} style={{...BUZZ_CHIP,background:!showStarred&&filterSrc==="search"?"#06B6D4":"#1E293B",color:!showStarred&&filterSrc==="search"?"white":"#64748B"}}>🔍 Search ({searchCount})</button>}
         <div style={{width:1,height:14,background:"#334155",margin:"0 3px"}}/>
         <span style={{fontSize:9,color:"#334155",fontWeight:700,letterSpacing:1}}>THEME</span>
         <button onClick={()=>setFilterTheme("All")} style={{...BUZZ_CHIP,background:filterTheme==="All"?"#8B5CF6":"#1E293B",color:filterTheme==="All"?"white":"#64748B"}}>All</button>
@@ -2643,29 +2782,65 @@ function MarketBuzzView(){
         <div style={{flex:1,overflowY:"auto",padding:"14px 18px"}}>
           {loading&&<div style={{color:"#475569",fontSize:13,padding:"30px 0",textAlign:"center"}}>Fetching the latest news…</div>}
           {!loading&&fetchErrs.length>0&&<div style={{color:"#FCA5A5",fontSize:11,padding:"8px 12px",background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.18)",borderRadius:8,marginBottom:12}}>{fetchErrs.map((e,i)=><div key={i}>⚠ {e}</div>)}</div>}
-          {!loading&&visible.length===0&&<div style={{color:"#475569",fontSize:13,padding:20}}>No articles match your current filters.{!newsApiKey&&searches.some(q=>q.on)?" Add your NewsAPI key in Configure → Search to enable topic searches.":""}</div>}
+          {!loading&&visible.length===0&&<div style={{color:"#475569",fontSize:13,padding:20}}>{showStarred?"No starred articles yet. Click the star on any article to save it here.":"No articles match your current filters."}{!newsApiKey&&searches.some(q=>q.on)?" Add your NewsAPI key in Configure → Search to enable topic searches.":""}</div>}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))",gap:12}}>
             {visible.map(a=>{
               const hits=themes.filter(t=>matchT(a,t));
               const isSearch=a.srcId==="search";
+              const isStarred=!!stars[a.id];
+              const hasNote=!!notes[a.id];
+              const isEditingNote=noteEditing===a.id;
+              const isShareOpen=shareMenu===a.id;
               return (
-                <a key={a.id} href={a.link} target="_blank" rel="noopener noreferrer"
-                  style={{background:"#1E293B",border:`1px solid ${isSearch?"rgba(6,182,212,0.25)":"#2D3748"}`,borderRadius:10,padding:"13px 15px",textDecoration:"none",display:"flex",flexDirection:"column",gap:7,transition:"border-color 0.15s"}}
-                  onMouseEnter={e=>e.currentTarget.style.borderColor=isSearch?"#06B6D4":"#3B82F6"}
-                  onMouseLeave={e=>e.currentTarget.style.borderColor=isSearch?"rgba(6,182,212,0.25)":"#2D3748"}>
+                <div key={a.id} style={{background:"#1E293B",border:`1px solid ${isStarred?"rgba(245,158,11,0.4)":isSearch?"rgba(6,182,212,0.25)":"#2D3748"}`,borderRadius:10,padding:"13px 15px",display:"flex",flexDirection:"column",gap:7,transition:"border-color 0.15s",position:"relative"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                    <div>
+                    <div style={{flex:1,minWidth:0}}>
                       <span style={{fontSize:10,fontWeight:700,color:BUZZ_CAT_COLORS[a.cat]||"#64748B",letterSpacing:0.4}}>{a.source}</span>
                       {a.searchLabel&&<span style={{marginLeft:6,fontSize:9,color:"#06B6D4",background:"rgba(6,182,212,0.1)",borderRadius:3,padding:"1px 5px"}}>🔍 {a.searchLabel}</span>}
                     </div>
-                    <span style={{fontSize:10,color:"#475569",flexShrink:0}}>{fmtPub(a.pub)}</span>
+                    <div style={{display:"flex",gap:2,alignItems:"center",flexShrink:0}}>
+                      <span style={{fontSize:10,color:"#475569",marginRight:4}}>{fmtPub(a.pub)}</span>
+                      <button onClick={e=>toggleStar(a.id,e)} title={isStarred?"Unstar":"Star"} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,padding:"0 2px",lineHeight:1,color:isStarred?"#F59E0B":"#334155",transition:"color 0.15s"}}>{isStarred?"★":"☆"}</button>
+                      <button onClick={e=>openNote(a.id,e)} title="Add note" style={{background:"none",border:"none",cursor:"pointer",fontSize:13,padding:"0 2px",lineHeight:1,color:hasNote?"#3B82F6":"#334155",transition:"color 0.15s"}}>📝</button>
+                      <button onClick={e=>openShare(a.id,e)} title="Share" style={{background:"none",border:"none",cursor:"pointer",fontSize:13,padding:"0 2px",lineHeight:1,color:isShareOpen?"#10B981":"#334155",transition:"color 0.15s"}}>↗</button>
+                    </div>
                   </div>
-                  <div style={{fontSize:13,fontWeight:700,color:"#E2E8F0",lineHeight:1.4}}>{a.title}</div>
+                  <a href={a.link} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#E2E8F0",lineHeight:1.4}}>{a.title}</div>
+                  </a>
                   {a.desc&&<div style={{fontSize:11,color:"#64748B",lineHeight:1.55}}>{a.desc}{a.desc.length>=200?"…":""}</div>}
                   {hits.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:2}}>{hits.map(t=>(
                     <span key={t} style={{background:"rgba(139,92,246,0.15)",border:"1px solid rgba(139,92,246,0.28)",borderRadius:4,padding:"1px 6px",fontSize:9,color:"#C4B5FD",fontWeight:600}}>{t}</span>
                   ))}</div>}
-                </a>
+                  {/* Note display */}
+                  {hasNote&&!isEditingNote&&(
+                    <div style={{background:"rgba(59,130,246,0.08)",border:"1px solid rgba(59,130,246,0.2)",borderRadius:6,padding:"6px 9px",marginTop:2,cursor:"pointer"}} onClick={e=>openNote(a.id,e)}>
+                      <div style={{fontSize:9,color:"#3B82F6",fontWeight:700,letterSpacing:0.5,marginBottom:2}}>MY NOTE</div>
+                      <div style={{fontSize:11,color:"#94A3B8",lineHeight:1.4}}>{notes[a.id].text}</div>
+                    </div>
+                  )}
+                  {/* Note editor */}
+                  {isEditingNote&&(
+                    <div style={{background:"#0F172A",border:"1px solid #334155",borderRadius:8,padding:10,marginTop:2}} onClick={e=>e.stopPropagation()}>
+                      <textarea value={noteDraft} onChange={e=>setNoteDraft(e.target.value)} placeholder="Add your note..." autoFocus
+                        style={{width:"100%",minHeight:60,background:"#1E293B",border:"1px solid #334155",borderRadius:6,padding:8,color:"#E2E8F0",fontSize:11,outline:"none",resize:"vertical",fontFamily:"inherit",lineHeight:1.5}}/>
+                      <div style={{display:"flex",gap:6,marginTop:6,justifyContent:"flex-end"}}>
+                        {notes[a.id]&&<button onClick={e=>{e.stopPropagation();setNotes(prev=>{const n={...prev};delete n[a.id];try{localStorage.setItem(LS_BUZZ_NOTES,JSON.stringify(n));}catch(e){}return n;});if(!stars[a.id]||!stars[a.id].at)deleteBookmark(a.id);else upsertBookmark(a.id,{note:null});setNoteEditing(null);}}
+                          style={{background:"none",border:"1px solid rgba(239,68,68,0.3)",borderRadius:5,color:"#EF4444",cursor:"pointer",fontSize:10,fontWeight:600,padding:"3px 10px",fontFamily:"inherit"}}>Delete</button>}
+                        <button onClick={e=>{e.stopPropagation();setNoteEditing(null);}} style={{background:"none",border:"1px solid #334155",borderRadius:5,color:"#64748B",cursor:"pointer",fontSize:10,fontWeight:600,padding:"3px 10px",fontFamily:"inherit"}}>Cancel</button>
+                        <button onClick={e=>{e.stopPropagation();saveNote(a.id);}} style={{background:"#3B82F6",border:"none",borderRadius:5,color:"white",cursor:"pointer",fontSize:10,fontWeight:700,padding:"3px 12px",fontFamily:"inherit"}}>Save</button>
+                      </div>
+                    </div>
+                  )}
+                  {/* Share dropdown */}
+                  {isShareOpen&&(
+                    <div style={{background:"#0F172A",border:"1px solid #334155",borderRadius:8,padding:6,marginTop:2,display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
+                      <button onClick={e=>shareViaEmail(a,e)} style={{flex:1,background:"#1E293B",border:"1px solid #334155",borderRadius:6,color:"#E2E8F0",cursor:"pointer",fontSize:11,fontWeight:600,padding:"7px 8px",fontFamily:"inherit"}}>✉ Email</button>
+                      <button onClick={e=>shareViaSMS(a,e)} style={{flex:1,background:"#1E293B",border:"1px solid #334155",borderRadius:6,color:"#E2E8F0",cursor:"pointer",fontSize:11,fontWeight:600,padding:"7px 8px",fontFamily:"inherit"}}>💬 Text</button>
+                      <button onClick={e=>copyLink(a,e)} style={{flex:1,background:"#1E293B",border:"1px solid #334155",borderRadius:6,color:"#E2E8F0",cursor:"pointer",fontSize:11,fontWeight:600,padding:"7px 8px",fontFamily:"inherit"}}>🔗 Copy</button>
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -3690,7 +3865,7 @@ function App() {
         </svg>}
         {view==="diamond"&&<DiamondView/>}
         {view==="dailylog"&&<DailyLogView jumpDate={logJumpDate} clearJump={()=>setLogJumpDate(null)} sbClient={sbClientRef.current} sbStatus={sbStatus}/>}
-        {view==="marketbuzz"&&<MarketBuzzView/>}
+        {view==="marketbuzz"&&<MarketBuzzView sbClient={sbClientRef.current} sbStatus={sbStatus}/>}
         {view==="pipeline"&&<DealPipelineView sbClient={sbClientRef.current}/>}
         {view==="tasks"&&<TasksGrid tasks={filtered} colorBy={colorBy} onSelect={handleSelect} selectedId={selected?.id}/>}
         {/* Main visualization area — hidden on special views */}
