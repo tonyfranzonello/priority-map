@@ -3270,13 +3270,88 @@ function DealPipelineView({sbClient}) {
   const catTabs=["Total","Civ","SLED","DoD"];
   const filteredDeals=useMemo(()=>deals.map((d,i)=>({...d,_i:i})).filter(d=>pipelineTab==="Total"||d.category===pipelineTab),[pipelineTab,deals]);
 
+  // ── Modeling Mode ──
+  const [modelingMode,setModelingMode]=useState(false);
+  const [modelDeals,setModelDeals]=useState(null); // deep clone of deals for modeling
+  const [modelDrag,setModelDrag]=useState(null); // {idx,startX,startY,origDate,origAmt}
+  const [modelTooltip,setModelTooltip]=useState(null); // {x,y,text,color}
+  const [scenarios,setScenarios]=useState([]); // [{name,deals,savedAt}] max 3
+  const [scenarioName,setScenarioName]=useState("");
+  const [showScenarioPanel,setShowScenarioPanel]=useState(false);
+  const [activeScenario,setActiveScenario]=useState(null); // name of loaded scenario
+  const [modelMsg,setModelMsg]=useState(null);
+  const modelMsgTimer=useRef(null);
+  const showModelMsg=(text,type,dur=3000)=>{clearTimeout(modelMsgTimer.current);setModelMsg({text,type});if(dur>0)modelMsgTimer.current=setTimeout(()=>setModelMsg(null),dur);};
+
+  // Enter modeling: deep clone current deals
+  const enterModeling=()=>{
+    setModelDeals(deals.map(d=>({...d})));
+    setModelingMode(true);
+    setActiveScenario(null);
+  };
+  const exitModeling=()=>{setModelingMode(false);setModelDeals(null);setActiveScenario(null);setModelTooltip(null);};
+
+  // Load scenarios from Supabase on mount
+  useEffect(()=>{
+    if(!sbClient) return;
+    sbClient.from("settings").select("*").eq("key","pipeline_scenarios").single().then(({data})=>{
+      if(data?.value) setScenarios(data.value);
+    });
+  },[sbClient]);
+
+  const saveScenario=async(name)=>{
+    if(!modelDeals||!name.trim()) return;
+    const entry={name:name.trim(),deals:modelDeals,savedAt:new Date().toISOString()};
+    let updated=[...scenarios];
+    const existing=updated.findIndex(s=>s.name===entry.name);
+    if(existing>=0) updated[existing]=entry;
+    else if(updated.length>=3){showModelMsg("Max 3 scenarios. Delete one first.","error");return;}
+    else updated.push(entry);
+    setScenarios(updated);
+    setActiveScenario(entry.name);
+    if(sbClient) await sbClient.from("settings").upsert({key:"pipeline_scenarios",value:updated},{onConflict:"key"});
+    showModelMsg(`Scenario "${entry.name}" saved`,"success");
+  };
+
+  const loadScenario=(sc)=>{
+    setModelDeals(sc.deals.map(d=>({...d})));
+    setActiveScenario(sc.name);
+    setModelingMode(true);
+    showModelMsg(`Loaded "${sc.name}"`,"success");
+  };
+
+  const deleteScenario=async(name)=>{
+    const updated=scenarios.filter(s=>s.name!==name);
+    setScenarios(updated);
+    if(activeScenario===name) setActiveScenario(null);
+    if(sbClient) await sbClient.from("settings").upsert({key:"pipeline_scenarios",value:updated},{onConflict:"key"});
+    showModelMsg(`Deleted "${name}"`,"success");
+  };
+
+  // The deals to render in the chart (modeling vs real)
+  const displayDeals=modelingMode&&modelDeals?modelDeals:deals;
+  const filteredDisplay=useMemo(()=>displayDeals.map((d,i)=>({...d,_i:i})).filter(d=>pipelineTab==="Total"||d.category===pipelineTab),[pipelineTab,displayDeals]);
+
+  // Cycle trend on click in modeling mode
+  const cycleTrend=(idx)=>{
+    if(!modelingMode||!modelDeals) return;
+    const trendCycle=[1,2,3,4]; // 1=up,2=stable,3=down,4=?
+    setModelDeals(prev=>{
+      const next=[...prev];
+      const cur=next[idx].trend;
+      const ci=trendCycle.indexOf(cur);
+      next[idx]={...next[idx],trend:trendCycle[(ci+1)%trendCycle.length]};
+      return next;
+    });
+  };
+
   const dealR=amt=>amt<150000?16:amt<350000?22:amt<800000?28:amt<2000000?34:40;
   const DEAL_TIERS=[{label:'< $150K',r:16},{label:'$150K–350K',r:22},{label:'$350K–800K',r:28},{label:'$800K–2M',r:34},{label:'> $2M',r:40}];
   const PAD={l:78,r:50,t:52,b:64};
   const fmtAmt=v=>v>=1e6?`$${(v/1e6).toFixed(1)}M`:v>=1000?`$${Math.round(v/1000)}K`:`$${Math.round(v)}`;
-  const trendIcon=t=>t===1?'↑':t===3?'↓':t===0?'·':'→';
+  const trendIcon=t=>t===1?'↑':t===3?'↓':t===4?'?':t===0?'·':'→';
   const statusColor=s=>s==='CLOSED!'?'#10B981':s==='Commit'?'#3B82F6':s==='Pipeline'?'#F59E0B':'#64748B';
-  const trendColor=t=>t===1?'#10B981':t===3?'#EF4444':'#94A3B8';
+  const trendColor=t=>t===1?'#10B981':t===3?'#EF4444':t===4?'#A78BFA':'#94A3B8';
   const catColor=c=>c==='Civ'?'#3B82F6':c==='SLED'?'#10B981':c==='DoD'?'#F59E0B':'#64748B';
 
   const computed=useMemo(()=>{
@@ -3290,8 +3365,10 @@ function DealPipelineView({sbClient}) {
     const logRange=LOG_HI-LOG_LO;
     const toX=ms=>PAD.l+(ms-T0)/tRange*chartW;
     const toY=amt=>PAD.t+(LOG_HI-Math.log(Math.max(amt,50000)))/logRange*chartH;
+    const fromX=px=>{const ms=T0+(px-PAD.l)/chartW*tRange;return new Date(ms);};
+    const fromY=py=>{const logAmt=LOG_HI-(py-PAD.t)/chartH*logRange;return Math.round(Math.exp(logAmt));};
     // Natural positions with per-dot radius
-    let pts=filteredDeals.map((d,i)=>{
+    let pts=filteredDisplay.map((d,i)=>{
       const r=dealR(d.amount);
       return {i, r,
         x:toX(new Date(d.date).getTime()), y:toY(d.amount),
@@ -3304,7 +3381,7 @@ function DealPipelineView({sbClient}) {
       let anyMove=false;
       for(let a=0;a<pts.length;a++){
         for(let b=a+1;b<pts.length;b++){
-          const da=filteredDeals[a], db=filteredDeals[b];
+          const da=filteredDisplay[a], db=filteredDisplay[b];
           const siblings=da.sheet&&db.sheet&&da.sheet===db.sheet&&da.date===db.date;
           const dx=pts[b].x-pts[a].x, dy=pts[b].y-pts[a].y;
           const dist=Math.sqrt(dx*dx+dy*dy);
@@ -3340,15 +3417,100 @@ function DealPipelineView({sbClient}) {
       y:toY(a), label:a>=1e6?`$${a/1e6}M`:`$${a/1000}K`
     }));
     const todayX=toX(new Date().getTime());
-    return {pts,months,yLines,chartW,chartH,todayX};
-  },[dims,pipelineTab,filteredDeals]);
+    return {pts,months,yLines,chartW,chartH,todayX,toX,toY,fromX,fromY};
+  },[dims,pipelineTab,filteredDisplay]);
 
-  const {pts,months,yLines,chartW,chartH,todayX}=computed;
+  const {pts,months,yLines,chartW,chartH,todayX,toX,toY,fromX,fromY}=computed;
+
+  // ── Modeling drag handlers ──
+  useEffect(()=>{
+    if(!modelDrag||!modelingMode) return;
+    const svgEl=contRef.current?.querySelector('svg');
+    if(!svgEl) return;
+    const toSvgCoords=(clientX,clientY)=>{
+      const pt=svgEl.createSVGPoint();
+      pt.x=clientX;pt.y=clientY;
+      return pt.matrixTransform(svgEl.getScreenCTM().inverse());
+    };
+    const getQuarter=(dateStr)=>{
+      const d=new Date(dateStr);
+      const m=d.getMonth();
+      const q=m<3?'1Q':m<6?'2Q':m<9?'3Q':'4Q';
+      return q+' '+d.getFullYear();
+    };
+    const onMove=(e)=>{
+      const svgCoord=toSvgCoords(e.clientX,e.clientY);
+      const dx=svgCoord.x-modelDrag.startSvgX;
+      const dy=svgCoord.y-modelDrag.startSvgY;
+      // Compute new date from X
+      const newDateObj=fromX(modelDrag.curX+dx);
+      const newDateStr=newDateObj.toISOString().slice(0,10);
+      // Compute new amount from Y
+      const newAmt=Math.max(10000,fromY(modelDrag.curY+dy));
+      // Compute delta
+      const amtDelta=newAmt-modelDrag.origAmt;
+      const amtPct=((newAmt/modelDrag.origAmt-1)*100).toFixed(1);
+      const qtr=getQuarter(newDateStr);
+      // Update model deals
+      setModelDeals(prev=>{
+        const next=[...prev];
+        next[modelDrag.idx]={...next[modelDrag.idx],date:newDateStr,amount:newAmt};
+        return next;
+      });
+      // Show tooltip
+      setModelTooltip({
+        x:svgCoord.x,y:svgCoord.y-40,
+        amt:fmtAmt(newAmt),
+        delta:amtDelta>=0?'+'+fmtAmt(amtDelta):'-'+fmtAmt(Math.abs(amtDelta)),
+        pct:(amtDelta>=0?'+':'')+amtPct+'%',
+        date:newDateStr,
+        qtr,
+        color:amtDelta>=0?'#10B981':'#EF4444'
+      });
+    };
+    const onUp=()=>{
+      setModelDrag(null);
+      setTimeout(()=>setModelTooltip(null),1500);
+    };
+    window.addEventListener('mousemove',onMove);
+    window.addEventListener('mouseup',onUp);
+    return()=>{window.removeEventListener('mousemove',onMove);window.removeEventListener('mouseup',onUp);};
+  },[modelDrag,modelingMode]);
+
   return (
     <div style={{flex:1,minHeight:0,overflow:'hidden',display:'flex',flexDirection:'column',padding:'10px 16px 8px'}}>
       {/* Legend */}
-      <div style={{flexShrink:0,marginBottom:6,display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
-        <span style={{fontSize:11,fontWeight:700,color:'#64748B',letterSpacing:0.8}}>DEAL PIPELINE — Close Date × Deal Size</span>
+      <div style={{flexShrink:0,marginBottom:6,display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',position:'relative'}}>
+        {/* Pipeline / Modeling toggle */}
+        <div style={{display:'flex',background:'#0F172A',borderRadius:8,padding:3,gap:2}}>
+          <button onClick={()=>{if(modelingMode)exitModeling();}}
+            style={{padding:'4px 14px',borderRadius:6,border:'none',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit',
+              background:!modelingMode?'#3B82F6':'transparent',color:!modelingMode?'white':'#475569',transition:'all 0.15s'}}>
+            Pipeline
+          </button>
+          <button onClick={()=>{if(!modelingMode)enterModeling();}}
+            style={{padding:'4px 14px',borderRadius:6,border:'none',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'inherit',
+              background:modelingMode?'#A78BFA':'transparent',color:modelingMode?'white':'#475569',transition:'all 0.15s'}}>
+            Modeling
+          </button>
+        </div>
+        {modelingMode&&(
+          <div style={{display:'flex',gap:4,alignItems:'center'}}>
+            <button onClick={()=>setShowScenarioPanel(v=>!v)}
+              style={{padding:'4px 10px',borderRadius:6,border:'1px solid #A78BFA',background:'transparent',
+                color:'#A78BFA',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>
+              💾 Scenarios {scenarios.length>0?`(${scenarios.length})`:''}
+            </button>
+            <button onClick={()=>{setModelDeals(deals.map(d=>({...d})));setActiveScenario(null);showModelMsg("Reset to live data","success");}}
+              style={{padding:'4px 10px',borderRadius:6,border:'1px solid #334155',background:'transparent',
+                color:'#64748B',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>
+              ↺ Reset
+            </button>
+            {activeScenario&&<span style={{fontSize:10,color:'#A78BFA',fontWeight:600}}>📋 {activeScenario}</span>}
+          </div>
+        )}
+        {!modelingMode&&<span style={{fontSize:11,fontWeight:700,color:'#64748B',letterSpacing:0.8}}>Close Date × Deal Size</span>}
+        {modelingMode&&<span style={{fontSize:10,color:'#A78BFA',fontWeight:600,fontStyle:'italic'}}>Drag circles to model · Click arrows to cycle trend</span>}
         <div style={{display:'flex',gap:4,marginLeft:8}}>
           {catTabs.map(tab=>{
             const tabCol=tab==="Total"?"#3B82F6":catColor(tab);
@@ -3362,15 +3524,51 @@ function DealPipelineView({sbClient}) {
             );
           })}
         </div>
-        <button onClick={()=>{setShowUpload(true);setUploadStatus("");setParsedDeals(null);setUploadError("");}}
+        {!modelingMode&&<button onClick={()=>{setShowUpload(true);setUploadStatus("");setParsedDeals(null);setUploadError("");}}
           style={{padding:'4px 12px',borderRadius:6,border:'1px solid #10B981',background:'transparent',
             color:'#10B981',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'inherit',letterSpacing:0.5,marginLeft:4}}
           title="Upload new spreadsheet data">
           ↑ Upload
-        </button>
-        {dealsSource==="supabase"&&<span style={{fontSize:9,color:'#10B981',fontWeight:600}}>● Live from DB</span>}
-        {dealsSource==="hardcoded"&&<span style={{fontSize:9,color:'#F59E0B',fontWeight:600}}>● Hardcoded data</span>}
+        </button>}
+        {!modelingMode&&dealsSource==="supabase"&&<span style={{fontSize:9,color:'#10B981',fontWeight:600}}>● Live from DB</span>}
+        {!modelingMode&&dealsSource==="hardcoded"&&<span style={{fontSize:9,color:'#F59E0B',fontWeight:600}}>● Hardcoded data</span>}
         {dealsLoading&&<span style={{fontSize:9,color:'#64748B'}}>Loading...</span>}
+        {/* Model message toast */}
+        {modelMsg&&<div style={{position:'absolute',top:-2,left:'50%',transform:'translateX(-50%)',zIndex:20,
+          background:modelMsg.type==='success'?'rgba(16,185,129,0.95)':'rgba(239,68,68,0.95)',
+          color:'white',padding:'6px 16px',borderRadius:8,fontSize:12,fontWeight:600,boxShadow:'0 4px 16px rgba(0,0,0,0.3)',
+          whiteSpace:'nowrap',animation:'voiceToastIn 0.2s ease-out'}}>{modelMsg.text}</div>}
+        {/* Scenario panel */}
+        {showScenarioPanel&&modelingMode&&(
+          <div style={{position:'absolute',top:'100%',left:0,zIndex:30,background:'#1E293B',border:'1px solid #334155',
+            borderRadius:12,padding:16,width:340,boxShadow:'0 12px 40px rgba(0,0,0,0.5)',marginTop:4}}>
+            <div style={{fontSize:13,fontWeight:800,color:'#F8FAFC',marginBottom:12}}>💾 Saved Scenarios</div>
+            {scenarios.length===0&&<div style={{fontSize:11,color:'#64748B',marginBottom:12}}>No saved scenarios yet.</div>}
+            {scenarios.map(sc=>(
+              <div key={sc.name} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:'1px solid #0F172A'}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,fontWeight:700,color:activeScenario===sc.name?'#A78BFA':'#E2E8F0'}}>{sc.name}</div>
+                  <div style={{fontSize:9,color:'#64748B'}}>{sc.deals.length} deals · {new Date(sc.savedAt).toLocaleDateString()}</div>
+                </div>
+                <button onClick={()=>{loadScenario(sc);setShowScenarioPanel(false);}}
+                  style={{padding:'4px 10px',borderRadius:6,border:'1px solid #334155',background:'#0F172A',color:'#3B82F6',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>Load</button>
+                <button onClick={()=>deleteScenario(sc.name)}
+                  style={{padding:'4px 8px',borderRadius:6,border:'1px solid #334155',background:'#0F172A',color:'#EF4444',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>✕</button>
+              </div>
+            ))}
+            <div style={{display:'flex',gap:6,marginTop:12}}>
+              <input value={scenarioName} onChange={e=>setScenarioName(e.target.value)} placeholder="Scenario name..."
+                style={{flex:1,background:'#0F172A',border:'1px solid #334155',borderRadius:6,padding:'6px 10px',color:'#E2E8F0',fontSize:11,outline:'none',fontFamily:'inherit'}}
+                onKeyDown={e=>{if(e.key==='Enter'&&scenarioName.trim()){saveScenario(scenarioName);setScenarioName("");setShowScenarioPanel(false);}}}/>
+              <button onClick={()=>{if(scenarioName.trim()){saveScenario(scenarioName);setScenarioName("");setShowScenarioPanel(false);}}}
+                disabled={!scenarioName.trim()||scenarios.length>=3}
+                style={{padding:'6px 12px',borderRadius:6,border:'none',background:scenarioName.trim()?'#A78BFA':'#334155',color:'white',fontSize:11,fontWeight:700,cursor:scenarioName.trim()?'pointer':'not-allowed',fontFamily:'inherit'}}>
+                Save Current
+              </button>
+            </div>
+            {scenarios.length>=3&&<div style={{fontSize:9,color:'#F59E0B',marginTop:6}}>Max 3 scenarios reached. Delete one to save a new one.</div>}
+          </div>
+        )}
         <div style={{display:'flex',gap:12}}>
           {[['Civ','#3B82F6'],['SLED','#10B981'],['DoD','#F59E0B']].map(([l,c])=>(
             <div key={l} style={{display:'flex',alignItems:'center',gap:4}}>
@@ -3398,7 +3596,7 @@ function DealPipelineView({sbClient}) {
           ))}
         </div>
         <div style={{marginLeft:'auto',display:'flex',gap:14}}>
-          {[['↑','#10B981','Trending Up'],['→','#94A3B8','Stable'],['↓','#EF4444','Trending Down']].map(([ic,c,l])=>(
+          {[['↑','#10B981','Up'],['→','#94A3B8','Stable'],['↓','#EF4444','Down'],['?','#A78BFA','Unknown']].map(([ic,c,l])=>(
             <div key={l} style={{display:'flex',alignItems:'center',gap:4}}>
               <span style={{fontSize:14,color:c,fontWeight:'bold',lineHeight:1}}>{ic}</span>
               <span style={{fontSize:10,color:'#64748B'}}>{l}</span>
@@ -3406,6 +3604,58 @@ function DealPipelineView({sbClient}) {
           ))}
         </div>
       </div>
+      {/* Modeling: quarter totals summary bar */}
+      {modelingMode&&modelDeals&&(()=>{
+        const qTotals={};
+        const dealsForSummary=pipelineTab==="Total"?modelDeals:modelDeals.filter(d=>d.category===pipelineTab);
+        dealsForSummary.forEach(d=>{
+          const dt=new Date(d.date);
+          const m=dt.getMonth();
+          const q=m<3?'1Q':m<6?'2Q':m<9?'3Q':'4Q';
+          const key=q+' '+dt.getFullYear();
+          qTotals[key]=(qTotals[key]||0)+d.amount;
+        });
+        // Also compute original totals for comparison
+        const origTotals={};
+        const origForSummary=pipelineTab==="Total"?deals:deals.filter(d=>d.category===pipelineTab);
+        origForSummary.forEach(d=>{
+          const dt=new Date(d.date);
+          const m=dt.getMonth();
+          const q=m<3?'1Q':m<6?'2Q':m<9?'3Q':'4Q';
+          const key=q+' '+dt.getFullYear();
+          origTotals[key]=(origTotals[key]||0)+d.amount;
+        });
+        const allQtrs=[...new Set([...Object.keys(qTotals),...Object.keys(origTotals)])].sort();
+        const totalModel=Object.values(qTotals).reduce((a,b)=>a+b,0);
+        const totalOrig=Object.values(origTotals).reduce((a,b)=>a+b,0);
+        const totalDelta=totalModel-totalOrig;
+        return (
+          <div style={{flexShrink:0,display:'flex',gap:8,marginBottom:4,alignItems:'center',flexWrap:'wrap'}}>
+            {allQtrs.map(q=>{
+              const cur=qTotals[q]||0;
+              const orig=origTotals[q]||0;
+              const delta=cur-orig;
+              return (
+                <div key={q} style={{padding:'4px 10px',background:'#0F172A',border:'1px solid #1E293B',borderRadius:6,display:'flex',gap:6,alignItems:'center'}}>
+                  <span style={{fontSize:10,fontWeight:700,color:'#94A3B8'}}>{q}</span>
+                  <span style={{fontSize:11,fontWeight:800,color:'#E2E8F0'}}>{fmtAmt(cur)}</span>
+                  {delta!==0&&<span style={{fontSize:9,fontWeight:700,color:delta>0?'#10B981':'#EF4444'}}>
+                    {delta>0?'+':''}{fmtAmt(delta)}
+                  </span>}
+                </div>
+              );
+            })}
+            <div style={{marginLeft:'auto',padding:'4px 12px',background:totalDelta>=0?'rgba(16,185,129,0.1)':'rgba(239,68,68,0.1)',
+              border:`1px solid ${totalDelta>=0?'rgba(16,185,129,0.3)':'rgba(239,68,68,0.3)'}`,borderRadius:6,display:'flex',gap:6,alignItems:'center'}}>
+              <span style={{fontSize:10,fontWeight:700,color:'#94A3B8'}}>TOTAL</span>
+              <span style={{fontSize:12,fontWeight:800,color:'#F8FAFC'}}>{fmtAmt(totalModel)}</span>
+              {totalDelta!==0&&<span style={{fontSize:10,fontWeight:700,color:totalDelta>0?'#10B981':'#EF4444'}}>
+                {totalDelta>0?'+':''}{fmtAmt(totalDelta)} ({((totalDelta/Math.max(totalOrig,1))*100).toFixed(1)}%)
+              </span>}
+            </div>
+          </div>
+        );
+      })()}
       {/* Chart */}
       <div ref={contRef} style={{flex:1,minHeight:0}}>
         <svg width="100%" height="100%" style={{overflow:'visible'}}>
@@ -3440,49 +3690,86 @@ function DealPipelineView({sbClient}) {
           {/* Connector lines from natural y to bumped y */}
           {pts.map((p,i)=>{
             if(Math.abs(p.y-p.ny)<4) return null;
-            const col=catColor(filteredDeals[i].category);
+            const col=catColor(filteredDisplay[i].category);
             return <line key={i} x1={p.x} y1={p.ny} x2={p.x} y2={p.y} stroke={col} strokeWidth={1} strokeDasharray="3,3" opacity={0.3}/>;
           })}
           {/* Deal dots + labels */}
           {pts.map((p,i)=>{
-            const d=filteredDeals[i];
+            const d=filteredDisplay[i];
             const r=p.r;
             const col=catColor(d.category);
             const isHov=hov===i;
+            const isDragging=modelDrag&&modelDrag.idx===d._i;
             const labelBelow=p.y<PAD.t+chartH*0.42;
             const arrowSize=Math.round(8+r*0.28);
+            // Check if this deal was modified from original (modeling mode)
+            const origDeal=modelingMode&&deals[d._i];
+            const isModified=modelingMode&&origDeal&&(origDeal.amount!==d.amount||origDeal.date!==d.date||origDeal.trend!==d.trend);
             return (
-              <g key={i} style={{cursor:'default'}} onMouseEnter={()=>setHov(i)} onMouseLeave={()=>setHov(null)}>
+              <g key={i} style={{cursor:modelingMode?'grab':'default'}}
+                onMouseEnter={()=>{if(!modelDrag)setHov(i);}}
+                onMouseLeave={()=>{if(!modelDrag)setHov(null);}}
+                onMouseDown={modelingMode?(e)=>{
+                  e.preventDefault();
+                  const svgEl=contRef.current?.querySelector('svg');
+                  if(!svgEl) return;
+                  const svgPt=svgEl.createSVGPoint();
+                  svgPt.x=e.clientX;svgPt.y=e.clientY;
+                  const ctm=svgEl.getScreenCTM().inverse();
+                  const svgCoord=svgPt.matrixTransform(ctm);
+                  setModelDrag({idx:d._i,startSvgX:svgCoord.x,startSvgY:svgCoord.y,origDate:d.date,origAmt:d.amount,curX:p.x,curY:p.y});
+                }:undefined}>
+                {/* Modified indicator ring */}
+                {isModified&&<circle cx={p.x} cy={p.y} r={r+5} fill="none" stroke="#A78BFA" strokeWidth={1.5} strokeDasharray="4,3" opacity={0.7}/>}
                 {isHov&&<circle cx={p.x} cy={p.y} r={r+8} fill={col} opacity={0.12}/>}
-                <circle cx={p.x} cy={p.y} r={r} fill="#0F172A" stroke={col} strokeWidth={isHov?2.5:1.8}/>
-                <text x={p.x} y={p.y+1} textAnchor="middle" dominantBaseline="middle" fontSize={arrowSize} fill={trendColor(d.trend)} fontWeight="bold" fontFamily="inherit">{trendIcon(d.trend)}</text>
+                <circle cx={p.x} cy={p.y} r={r} fill={isDragging?"#1E293B":"#0F172A"} stroke={isDragging?"#A78BFA":col} strokeWidth={isHov||isDragging?2.5:1.8}/>
+                {/* Trend icon — clickable in modeling mode */}
+                <text x={p.x} y={p.y+1} textAnchor="middle" dominantBaseline="middle" fontSize={arrowSize}
+                  fill={trendColor(d.trend)} fontWeight="bold" fontFamily="inherit"
+                  style={{cursor:modelingMode?'pointer':'inherit'}}
+                  onClick={modelingMode?(e)=>{e.stopPropagation();cycleTrend(d._i);}:undefined}>{trendIcon(d.trend)}</text>
                 {/* Account name */}
                 <text x={p.x} y={labelBelow?p.y+r+12:p.y-r-6}
                   textAnchor="middle" fontSize={9.5} fontWeight="700"
-                  fill={isHov?'#F8FAFC':'#94A3B8'}
+                  fill={isModified?'#A78BFA':isHov?'#F8FAFC':'#94A3B8'}
                   dominantBaseline={labelBelow?'hanging':'auto'}
                   fontFamily="inherit">{d.account}</text>
                 {/* Amount */}
                 <text x={p.x} y={labelBelow?p.y-r-6:p.y+r+12}
                   textAnchor="middle" fontSize={8.5}
-                  fill={isHov?col:'#475569'}
+                  fill={isModified?'#A78BFA':isHov?col:'#475569'}
                   dominantBaseline={labelBelow?'auto':'hanging'}
                   fontFamily="inherit">{fmtAmt(d.amount)}</text>
                 {/* Hover date */}
                 {isHov&&<text x={p.x} y={labelBelow?p.y+r+26:p.y-r-19}
-                  textAnchor="middle" fontSize={8} fill="#64748B"
+                  textAnchor="middle" fontSize={8} fill={isModified?'#A78BFA':'#64748B'}
                   dominantBaseline={labelBelow?'hanging':'auto'}
-                  fontFamily="inherit">{d.date}</text>}
+                  fontFamily="inherit">{d.date}{isModified&&origDeal?' (was '+origDeal.date+')':''}</text>}
               </g>
             );
+          })}
+          {/* Modeling drag tooltip */}
+          {modelTooltip&&(
+            <g>
+              <rect x={modelTooltip.x-90} y={modelTooltip.y-38} width={180} height={36} rx={8} fill="#1E293B" stroke={modelTooltip.color} strokeWidth={1.5} opacity={0.96}/>
+              <text x={modelTooltip.x} y={modelTooltip.y-24} textAnchor="middle" fontSize={12} fontWeight="800" fill={modelTooltip.color} fontFamily="inherit">{modelTooltip.amt} ({modelTooltip.pct})</text>
+              <text x={modelTooltip.x} y={modelTooltip.y-10} textAnchor="middle" fontSize={9} fill="#94A3B8" fontFamily="inherit">{modelTooltip.qtr} · {modelTooltip.date}</text>
+            </g>
+          )}
+          {/* Modeling: quarter band highlights when dragging */}
+          {modelingMode&&modelDrag&&months.filter(m=>m.isQtr).map((m,mi)=>{
+            const nextQtr=months.filter(mm=>mm.isQtr)[mi+1];
+            if(!nextQtr) return null;
+            return <rect key={mi} x={m.x} y={PAD.t} width={nextQtr.x-m.x} height={chartH}
+              fill={mi%2===0?'rgba(167,139,250,0.03)':'rgba(167,139,250,0.06)'} stroke="none"/>;
           })}
           {/* Axis labels */}
           <text transform={`rotate(-90,${PAD.l-54},${PAD.t+chartH/2})`} x={PAD.l-54} y={PAD.t+chartH/2}
             textAnchor="middle" fontSize={9} fill="#475569" fontWeight="600" fontFamily="inherit">DEAL SIZE</text>
           <text x={PAD.l+chartW/2} y={PAD.t+chartH+55} textAnchor="middle" fontSize={9} fill="#475569" fontWeight="600" fontFamily="inherit">CLOSE DATE</text>
           {/* Hover tooltip with Notes/Next Steps */}
-          {hov!==null&&filteredDeals[hov]&&filteredDeals[hov].notes&&(()=>{
-            const d=filteredDeals[hov], p=pts[hov], r=p.r;
+          {hov!==null&&filteredDisplay[hov]&&filteredDisplay[hov].notes&&(()=>{
+            const d=filteredDisplay[hov], p=pts[hov], r=p.r;
             const col=catColor(d.category);
             const tw=280, maxTH=180;
             // Position: prefer right of dot; flip left if near right edge; above/below based on y
