@@ -3577,9 +3577,9 @@ function DealPipelineView({sbClient}) {
   },[modelDrag,modelingMode]);
 
   return (
-    <div style={{flex:1,minHeight:0,overflow:'hidden',display:'flex',flexDirection:'column',padding:'10px 16px 8px'}}>
+    <div style={{flex:1,minHeight:0,overflow:'hidden',display:'flex',flexDirection:'column',padding:'4px 16px 4px'}}>
       {/* Legend */}
-      <div style={{flexShrink:0,marginBottom:6,display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',position:'relative'}}>
+      <div style={{flexShrink:0,marginBottom:2,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',position:'relative'}}>
         {/* Pipeline / Modeling toggle */}
         <div style={{display:'flex',background:'#0F172A',borderRadius:8,padding:3,gap:2}}>
           <button onClick={()=>{if(modelingMode)exitModeling();}}
@@ -3702,17 +3702,14 @@ function DealPipelineView({sbClient}) {
             </div>
           ))}
         </div>
-        {/* ── Total + Adjusted with Pie Charts ── */}
-        {(()=>{
+        {/* ── Total + Adjusted with Pie Charts (Pipeline mode only) ── */}
+        {!modelingMode&&(()=>{
           const src=filteredDisplay;
           const catColors={'Civ':'#3B82F6','SLED':'#10B981','DoD':'#F59E0B','':'#64748B'};
-          // Total by category
           const totalByCat={};let grandTotal=0;
           src.forEach((d,i)=>{const cat=d.category||'';totalByCat[cat]=(totalByCat[cat]||0)+d.amount;grandTotal+=d.amount;});
-          // Adjusted by category
           const adjByCat={};let grandAdj=0;
           src.forEach((d,i)=>{const cat=d.category||'';const conf=getConf(d);const adj=d.amount*conf.pct;adjByCat[cat]=(adjByCat[cat]||0)+adj;grandAdj+=adj;});
-          // Mini pie chart renderer
           const MiniPie=({data,size})=>{
             const r=size/2-1,cx=size/2,cy=size/2;
             const total=Object.values(data).reduce((a,b)=>a+b,0);
@@ -3731,15 +3728,15 @@ function DealPipelineView({sbClient}) {
             return <svg width={size} height={size}>{slices}</svg>;
           };
           return (
-            <div style={{marginLeft:'auto',display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}>
-              <div style={{display:'flex',alignItems:'center',gap:10,padding:'6px 14px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
+            <div style={{marginLeft:'auto',display:'flex',gap:10,alignItems:'center'}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,padding:'5px 12px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
                 <MiniPie data={totalByCat} size={56}/>
                 <div>
                   <div style={{fontSize:10,color:'#94A3B8',fontWeight:700,letterSpacing:0.8}}>TOTAL</div>
                   <div style={{fontSize:18,fontWeight:800,color:'#F8FAFC'}}>{fmtAmt(grandTotal)}</div>
                 </div>
               </div>
-              <div style={{display:'flex',alignItems:'center',gap:10,padding:'6px 14px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,padding:'5px 12px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
                 <MiniPie data={adjByCat} size={56}/>
                 <div>
                   <div style={{fontSize:10,color:'#94A3B8',fontWeight:700,letterSpacing:0.8}}>ADJUSTED</div>
@@ -3797,7 +3794,7 @@ function DealPipelineView({sbClient}) {
         const totalOrig=Object.values(origTotals).reduce((a,b)=>a+b,0);
         const totalDelta=mGrandTotal-totalOrig;
         return (
-          <div style={{flexShrink:0,display:'flex',gap:8,marginBottom:4,alignItems:'center',flexWrap:'wrap'}}>
+          <div style={{flexShrink:0,display:'flex',gap:8,marginBottom:2,alignItems:'center',flexWrap:'wrap'}}>
             {allQtrs.map(q=>{
               const cur=qTotals[q]||0;
               const orig=origTotals[q]||0;
@@ -3812,8 +3809,8 @@ function DealPipelineView({sbClient}) {
                 </div>
               );
             })}
-            <div style={{marginLeft:'auto',display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}>
-              <div style={{display:'flex',alignItems:'center',gap:10,padding:'6px 14px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
+            <div style={{marginLeft:'auto',display:'flex',gap:10,alignItems:'center'}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,padding:'5px 12px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
                 <ModelPie data={mTotalByCat} size={56}/>
                 <div>
                   <div style={{fontSize:10,color:'#94A3B8',fontWeight:700,letterSpacing:0.8}}>TOTAL</div>
@@ -3823,7 +3820,7 @@ function DealPipelineView({sbClient}) {
                   </div>}
                 </div>
               </div>
-              <div style={{display:'flex',alignItems:'center',gap:10,padding:'6px 14px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,padding:'5px 12px',background:'#0F172A',border:'1px solid #334155',borderRadius:10}}>
                 <ModelPie data={mAdjByCat} size={56}/>
                 <div>
                   <div style={{fontSize:10,color:'#94A3B8',fontWeight:700,letterSpacing:0.8}}>ADJUSTED</div>
@@ -3866,16 +3863,23 @@ function DealPipelineView({sbClient}) {
             });
           })()}
           {/* X axis month/quarter markers */}
-          {months.map((m,i)=>(
+          {months.map((m,i)=>{
+            // For quarter labels, find next quarter x to center label in band
+            let nextQtrX=PAD.l+chartW;
+            if(m.isQtr){
+              for(let j=i+1;j<months.length;j++){if(months[j].isQtr){nextQtrX=months[j].x;break;}}
+            }
+            return (
             <g key={i}>
               {m.isQtr
                 ?<line x1={m.x} y1={PAD.t} x2={m.x} y2={PAD.t+chartH} stroke="#475569" strokeWidth={2.5}/>
                 :<line x1={m.x} y1={PAD.t+chartH} x2={m.x} y2={PAD.t+chartH+5} stroke="#334155" strokeWidth={1}/>}
               {m.isQtr
-                ?<text x={m.x+4} y={PAD.t+chartH+30} fontSize={12} fill="#94A3B8" fontWeight="800" fontFamily="inherit">{m.qLabel}</text>
+                ?<text x={m.x+(nextQtrX-m.x)/2} y={PAD.t+chartH+28} textAnchor="middle" fontSize={12} fill="#94A3B8" fontWeight="800" fontFamily="inherit" letterSpacing="1">{m.qLabel}</text>
                 :<text x={m.x} y={PAD.t+chartH+15} textAnchor="middle" fontSize={9} fill="#475569" fontWeight="500" fontFamily="inherit">{m.monthLabel}</text>}
             </g>
-          ))}
+            );
+          })}
           {/* Today marker */}
           {todayX>PAD.l&&todayX<PAD.l+chartW&&(
             <g>
@@ -4482,7 +4486,7 @@ function App() {
   return (
     <div style={{display:"flex",flexDirection:"column",height:"100vh",overflow:"hidden"}}>
       {/* Header */}
-      <div style={{background:"#1E293B",borderBottom:"1px solid #334155",padding:"11px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+      <div style={{background:"#1E293B",borderBottom:"1px solid #334155",padding:"7px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:28,height:28,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>⊙</div>
           <div>
@@ -4532,6 +4536,13 @@ function App() {
             if(error) alert("Auth error: "+error.message);
             else alert("Check your email for a login link!");
           }} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #334155",background:"#1E293B",color:"#94A3B8",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Login</button>}
+          {sbStatus==="connected"&&<button onClick={async()=>{
+            const ans=prompt("Security Question: What is your mother's middle name?");
+            if(!ans||ans.trim().toLowerCase()!=="elizabeth"){if(ans!==null)alert("Incorrect answer.");return;}
+            setShowRollback(true);setRollbackMsg("");
+            const{data}=await sbClientRef.current.from("task_snapshots").select("*").order("created_at",{ascending:false}).limit(50);
+            setSnapshots(data||[]);
+          }} style={{padding:"4px 8px",borderRadius:6,border:"1px solid #334155",background:"#1E293B",color:"#64748B",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}} title="Rollback to previous snapshot">↺</button>}
           <div style={{position:"relative"}}>
             <div onClick={()=>{setSearchOpen(true);setTimeout(()=>searchRef.current?.focus(),50);}} style={{display:"flex",alignItems:"center",gap:6,background:"#0F172A",border:"1px solid #334155",borderRadius:8,padding:"5px 10px",cursor:"text",minWidth:170}}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -4652,13 +4663,6 @@ function App() {
 
       {showForm&&<TaskForm form={form} setForm={setForm} onSave={handleSave} onCancel={()=>{setShowForm(false);setEditingId(null);setSaveErr("");}} isEditing={editingId!==null} team={team} onAddPerson={addPerson} saveErr={saveErr}/>}
 
-      {sbStatus==="connected"&&<button onClick={async()=>{
-        const ans=prompt("Security Question: What is your mother's middle name?");
-        if(!ans||ans.trim().toLowerCase()!=="elizabeth"){if(ans!==null)alert("Incorrect answer.");return;}
-        setShowRollback(true);setRollbackMsg("");
-        const{data}=await sbClientRef.current.from("task_snapshots").select("*").order("created_at",{ascending:false}).limit(50);
-        setSnapshots(data||[]);
-      }} style={{position:"fixed",bottom:20,right:20,padding:"10px 18px",borderRadius:10,border:"1px solid #334155",background:"#1E293B",color:"#94A3B8",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",zIndex:100,boxShadow:"0 4px 12px rgba(0,0,0,0.4)"}}>↺ Rollback</button>}
 
       {showRollback&&(
         <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)setShowRollback(false);}}>
