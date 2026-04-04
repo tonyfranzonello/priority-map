@@ -3723,36 +3723,35 @@ function DealPipelineView({sbClient}) {
           src.forEach((d,i)=>{const cat=d.category||'';totalByCat[cat]=(totalByCat[cat]||0)+d.amount;grandTotal+=d.amount;});
           const adjByCat={};let grandAdj=0;
           src.forEach((d,i)=>{const cat=d.category||'';const conf=getConf(d);const adj=d.amount*conf.pct;adjByCat[cat]=(adjByCat[cat]||0)+adj;grandAdj+=adj;});
-          const BarChart=({data,label,labelColor,grandTotal:gt})=>{
-            const cats=['Civ','SLED','DoD'];
-            const maxVal=Math.max(...cats.map(c=>data[c]||0),1);
-            const barW=100;
-            return (
-              <div style={{display:'flex',flexDirection:'column',gap:1}}>
-                <div style={{display:'flex',alignItems:'baseline',gap:6,marginBottom:2}}>
-                  <span style={{fontSize:10,fontWeight:700,color:'#94A3B8',letterSpacing:0.5}}>{label}</span>
-                  <span style={{fontSize:14,fontWeight:800,color:labelColor}}>{fmtAmt(gt)}</span>
-                </div>
-                {cats.map(cat=>{
-                  const val=data[cat]||0;
-                  const w=maxVal>0?Math.max((val/maxVal)*barW,0):0;
-                  return (
-                    <div key={cat} style={{display:'flex',alignItems:'center',gap:4,height:14}}>
-                      <span style={{fontSize:9,fontWeight:700,color:'#94A3B8',width:28,textAlign:'right'}}>{cat}</span>
-                      <div style={{width:barW,height:10,background:'rgba(30,41,59,0.6)',borderRadius:3,overflow:'hidden'}}>
-                        <div style={{width:w,height:'100%',background:catColors[cat]||'#64748B',borderRadius:3,transition:'width 0.3s'}}/>
-                      </div>
-                      <span style={{fontSize:9,fontWeight:700,color:catColors[cat]||'#94A3B8',minWidth:32}}>{val>0?fmtAmt(val):''}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          };
+          const cats=['Civ','SLED','DoD'];
+          const maxVal=Math.max(...cats.map(c=>totalByCat[c]||0),1);
+          const barW=120;
           return (
-            <div style={{marginLeft:'auto',display:'flex',gap:16,alignItems:'flex-start'}}>
-              <BarChart data={totalByCat} label="TOTAL" labelColor="#F8FAFC" grandTotal={grandTotal}/>
-              <BarChart data={adjByCat} label="RISK ADJUSTED" labelColor="#A78BFA" grandTotal={grandAdj}/>
+            <div style={{marginLeft:'auto',display:'flex',flexDirection:'column',gap:2}}>
+              <div style={{display:'flex',alignItems:'baseline',gap:8,marginBottom:2}}>
+                <span style={{fontSize:10,fontWeight:700,color:'#94A3B8',letterSpacing:0.5}}>TOTAL</span>
+                <span style={{fontSize:14,fontWeight:800,color:'#F8FAFC'}}>{fmtAmt(grandTotal)}</span>
+                <span style={{fontSize:9,color:'#475569'}}>|</span>
+                <span style={{fontSize:10,fontWeight:700,color:'#94A3B8',letterSpacing:0.5}}>RISK ADJ</span>
+                <span style={{fontSize:14,fontWeight:800,color:'#A78BFA'}}>{fmtAmt(grandAdj)}</span>
+              </div>
+              {cats.map(cat=>{
+                const tVal=totalByCat[cat]||0;
+                const aVal=adjByCat[cat]||0;
+                const tW=maxVal>0?(tVal/maxVal)*barW:0;
+                const aW=maxVal>0?(aVal/maxVal)*barW:0;
+                return (
+                  <div key={cat} style={{display:'flex',alignItems:'center',gap:4,height:16}}>
+                    <span style={{fontSize:9,fontWeight:700,color:'#94A3B8',width:28,textAlign:'right'}}>{cat}</span>
+                    <div style={{width:barW,height:12,background:'rgba(30,41,59,0.6)',borderRadius:3,position:'relative',overflow:'hidden'}}>
+                      <div style={{position:'absolute',top:0,left:0,width:tW,height:'100%',background:catColors[cat]||'#64748B',opacity:0.3,borderRadius:3}}/>
+                      <div style={{position:'absolute',top:0,left:0,width:aW,height:'100%',background:catColors[cat]||'#64748B',borderRadius:3}}/>
+                    </div>
+                    <span style={{fontSize:9,fontWeight:600,color:catColors[cat]||'#94A3B8',minWidth:36,opacity:0.7}}>{tVal>0?fmtAmt(tVal):''}</span>
+                    <span style={{fontSize:9,fontWeight:700,color:catColors[cat]||'#94A3B8',minWidth:36}}>{aVal>0?fmtAmt(aVal):''}</span>
+                  </div>
+                );
+              })}
             </div>
           );
         })()}
@@ -3905,8 +3904,8 @@ function DealPipelineView({sbClient}) {
                   style={{cursor:modelingMode?'pointer':'inherit',pointerEvents:modelingMode?'none':'auto'}}>{trendIcon(d.trend)}</text>
                 {/* Account name */}
                 <text x={p.x} y={labelBelow?p.y+r+12:p.y-r-6}
-                  textAnchor="middle" fontSize={isPipe?9:11} fontWeight={isPipe?500:800}
-                  fill={isModified?'#A78BFA':isHov?'#F8FAFC':isPipe?'#475569':'#F8FAFC'}
+                  textAnchor="middle" fontSize={isPipe?9:11} fontWeight={isPipe?500:700}
+                  fill={isModified?'#A78BFA':isHov?'#E2E8F0':isPipe?'#475569':'#94A3B8'}
                   dominantBaseline={labelBelow?'hanging':'auto'}
                   fontFamily="inherit">{d.account}</text>
                 {/* Amount + Confidence on same line */}
@@ -3919,13 +3918,13 @@ function DealPipelineView({sbClient}) {
                     <g>
                       <text x={p.x-2} y={amtY}
                         textAnchor="end" fontSize={isPipe?8:10}
-                        fill={isModified?'#A78BFA':isHov?col:isPipe?'#334155':'#CBD5E1'}
+                        fill={isModified?'#A78BFA':isHov?col:isPipe?'#334155':'#64748B'}
                         dominantBaseline={labelBelow?'auto':'hanging'}
-                        fontWeight={isPipe?400:700}
+                        fontWeight={isPipe?400:600}
                         fontFamily="inherit">{amtLabel}</text>
                       <text x={p.x+2} y={amtY}
-                        textAnchor="start" fontSize={isPipe?8:10} fontWeight="700"
-                        fill={conf.color} fontFamily="inherit"
+                        textAnchor="start" fontSize={isPipe?8:10} fontWeight="600"
+                        fill={conf.color} fontFamily="inherit" opacity={isHov?1:0.7}
                         dominantBaseline={labelBelow?'auto':'hanging'}
                         style={{cursor:'pointer'}}
                         onMouseDown={(e)=>{e.stopPropagation();}}
