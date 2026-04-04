@@ -3902,10 +3902,10 @@ function DealPipelineView({sbClient}) {
                 <text x={p.x} y={p.y+1} textAnchor="middle" dominantBaseline="middle" fontSize={arrowSize}
                   fill={trendColor(d.trend)} fontWeight="bold" fontFamily="inherit"
                   style={{cursor:modelingMode?'pointer':'inherit',pointerEvents:modelingMode?'none':'auto'}}>{trendIcon(d.trend)}</text>
-                {/* Account name — always visible but muted */}
+                {/* Account name — always visible, subtle */}
                 <text x={p.x} y={labelBelow?p.y+r+12:p.y-r-6}
-                  textAnchor="middle" fontSize={isPipe?9:11} fontWeight={isPipe?500:700}
-                  fill={isModified?'#A78BFA':isHov?'#E2E8F0':isPipe?'#334155':'#64748B'}
+                  textAnchor="middle" fontSize={isPipe?8:9} fontWeight={isPipe?400:500}
+                  fill={isModified?'#A78BFA':isHov?'#CBD5E1':isPipe?'#1E293B':'#475569'}
                   dominantBaseline={labelBelow?'hanging':'auto'}
                   fontFamily="inherit">{d.account}</text>
                 {/* Amount + Confidence — only on hover */}
