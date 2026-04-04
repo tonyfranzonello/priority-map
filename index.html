@@ -3902,12 +3902,17 @@ function DealPipelineView({sbClient}) {
                 <text x={p.x} y={p.y+1} textAnchor="middle" dominantBaseline="middle" fontSize={arrowSize}
                   fill={trendColor(d.trend)} fontWeight="bold" fontFamily="inherit"
                   style={{cursor:modelingMode?'pointer':'inherit',pointerEvents:modelingMode?'none':'auto'}}>{trendIcon(d.trend)}</text>
-                {/* Account name — always visible, subtle */}
-                <text x={p.x} y={labelBelow?p.y+r+12:p.y-r-6}
-                  textAnchor="middle" fontSize={isPipe?8:9} fontWeight={isPipe?400:500}
-                  fill={isModified?'#A78BFA':isHov?'#CBD5E1':isPipe?'#1E293B':'#475569'}
-                  dominantBaseline={labelBelow?'hanging':'auto'}
-                  fontFamily="inherit">{d.account}</text>
+                {/* Account name — always visible, subtle category-tinted */}
+                {(()=>{
+                  const mutedCatCol={'Civ':'#4A6178','SLED':'#4A7868','DoD':'#7A6A4A','':'#3D4D5C'};
+                  const hovCatCol={'Civ':'#7EADD4','SLED':'#7ED4B0','DoD':'#D4A87E','':'#94A3B8'};
+                  const nameCol=isModified?'#A78BFA':isHov?hovCatCol[d.category||'']:isPipe?'#1E293B':mutedCatCol[d.category||''];
+                  return <text x={p.x} y={labelBelow?p.y+r+12:p.y-r-6}
+                    textAnchor="middle" fontSize={isPipe?8:9} fontWeight={isPipe?400:400}
+                    fill={nameCol}
+                    dominantBaseline={labelBelow?'hanging':'auto'}
+                    fontFamily="inherit">{d.account}</text>;
+                })()}
                 {/* Amount + Confidence — only on hover */}
                 {(isHov||isDragging)&&(()=>{
                   const conf=getConf(d);
