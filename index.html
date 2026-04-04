@@ -3280,14 +3280,18 @@ function DealPipelineView({sbClient}) {
   const [showScenarioPanel,setShowScenarioPanel]=useState(false);
   const [activeScenario,setActiveScenario]=useState(null); // name of loaded scenario
   const [modelMsg,setModelMsg]=useState(null);
+  const [modelUndoStack,setModelUndoStack]=useState([]); // array of previous modelDeals snapshots
   const modelMsgTimer=useRef(null);
   const showModelMsg=(text,type,dur=3000)=>{clearTimeout(modelMsgTimer.current);setModelMsg({text,type});if(dur>0)modelMsgTimer.current=setTimeout(()=>setModelMsg(null),dur);};
+  const pushUndo=()=>{if(modelDeals)setModelUndoStack(prev=>[...prev,modelDeals.map(d=>({...d}))]);};
+  const doUndo=()=>{setModelUndoStack(prev=>{if(prev.length===0)return prev;const last=prev[prev.length-1];setModelDeals(last);showModelMsg("Undone","success");return prev.slice(0,-1);});};
 
   // Enter modeling: deep clone current deals
   const enterModeling=()=>{
     setModelDeals(deals.map(d=>({...d})));
     setModelingMode(true);
     setActiveScenario(null);
+    setModelUndoStack([]);
   };
   const exitModeling=()=>{setModelingMode(false);setModelDeals(null);setActiveScenario(null);setModelTooltip(null);};
 
@@ -3335,6 +3339,7 @@ function DealPipelineView({sbClient}) {
   // Cycle trend on click in modeling mode
   const cycleTrend=(idx)=>{
     if(!modelingMode||!modelDeals) return;
+    pushUndo();
     const trendCycle=[1,2,3,4]; // 1=up,2=stable,3=down,4=?
     setModelDeals(prev=>{
       const next=[...prev];
@@ -3600,10 +3605,16 @@ function DealPipelineView({sbClient}) {
                 color:'#A78BFA',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>
               💾 Scenarios {scenarios.length>0?`(${scenarios.length})`:''}
             </button>
-            <button onClick={()=>{setModelDeals(deals.map(d=>({...d})));setActiveScenario(null);showModelMsg("Reset to live data","success");}}
+            <button onClick={()=>{setModelDeals(deals.map(d=>({...d})));setActiveScenario(null);setModelUndoStack([]);showModelMsg("Reset to live data","success");}}
               style={{padding:'4px 10px',borderRadius:6,border:'1px solid #334155',background:'transparent',
                 color:'#64748B',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>
               ↺ Reset
+            </button>
+            <button onClick={doUndo}
+              style={{padding:'4px 10px',borderRadius:6,border:'1px solid #334155',background:'transparent',
+                color:modelUndoStack.length>0?'#3B82F6':'#334155',fontSize:10,fontWeight:700,cursor:modelUndoStack.length>0?'pointer':'default',
+                fontFamily:'inherit',opacity:modelUndoStack.length>0?1:0.4,pointerEvents:modelUndoStack.length>0?'auto':'none'}}>
+              ⟲ Undo{modelUndoStack.length>0?` (${modelUndoStack.length})`:''}
             </button>
             <button onClick={()=>setShowApplyModal(true)}
               style={{padding:'4px 12px',borderRadius:6,border:'1px solid #10B981',background:'transparent',
@@ -3819,8 +3830,8 @@ function DealPipelineView({sbClient}) {
               {m.isQtr
                 ?<line x1={m.x} y1={PAD.t} x2={m.x} y2={PAD.t+chartH} stroke="#475569" strokeWidth={2.5}/>
                 :<line x1={m.x} y1={PAD.t+chartH} x2={m.x} y2={PAD.t+chartH+5} stroke="#334155" strokeWidth={1}/>}
-              {m.isQtr&&<text x={m.x+(nextQtrX-m.x)/2} y={PAD.t+chartH+28} textAnchor="middle" fontSize={12} fill="#F8FAFC" fontWeight="800" fontFamily="inherit" letterSpacing="1">{m.qLabel}</text>}
-              <text x={m.x} y={PAD.t+chartH+15} textAnchor="middle" fontSize={10} fill={m.isQtr?'#CBD5E1':'#F8FAFC'} fontWeight={m.isQtr?'700':'600'} fontFamily="inherit">{m.monthLabel}</text>
+              {m.isQtr&&<text x={m.x+(nextQtrX-m.x)/2} y={PAD.t+chartH+36} textAnchor="middle" fontSize={11} fill="#94A3B8" fontWeight="800" fontFamily="inherit" letterSpacing="1">{m.qLabel}</text>}
+              <text x={m.isQtr?m.x+4:m.x} y={PAD.t+chartH+16} textAnchor={m.isQtr?'start':'middle'} fontSize={11} fill="#F8FAFC" fontWeight="600" fontFamily="inherit">{m.monthLabel}</text>
             </g>
             );
           })}
@@ -3858,6 +3869,7 @@ function DealPipelineView({sbClient}) {
                 onMouseLeave={()=>{if(!modelDrag)setHov(null);}}
                 onMouseDown={modelingMode?(e)=>{
                   e.preventDefault();
+                  pushUndo();
                   const svgEl=contRef.current?.querySelector('svg');
                   if(!svgEl) return;
                   const svgPt=svgEl.createSVGPoint();
@@ -3870,43 +3882,49 @@ function DealPipelineView({sbClient}) {
                 {isModified&&<circle cx={p.x} cy={p.y} r={r+5} fill="none" stroke="#A78BFA" strokeWidth={1.5} strokeDasharray="4,3" opacity={0.7}/>}
                 {isHov&&<circle cx={p.x} cy={p.y} r={r+8} fill={col} opacity={0.15}/>}
                 <circle cx={p.x} cy={p.y} r={r} fill={isDragging?"#1E293B":"#0F172A"} stroke={isDragging?"#A78BFA":col} strokeWidth={isHov||isDragging?3:isPipe?1.2:2.2}/>
-                {/* Trend icon — clickable in modeling mode */}
+                {/* Trend icon — clickable in modeling mode, with larger invisible hit target */}
+                {modelingMode&&<circle cx={p.x} cy={p.y} r={Math.max(r*0.7,12)} fill="transparent"
+                  style={{cursor:'pointer'}}
+                  onMouseDown={(e)=>{e.stopPropagation();}}
+                  onClick={(e)=>{e.stopPropagation();cycleTrend(d._i);}}/>}
                 <text x={p.x} y={p.y+1} textAnchor="middle" dominantBaseline="middle" fontSize={arrowSize}
                   fill={trendColor(d.trend)} fontWeight="bold" fontFamily="inherit"
-                  style={{cursor:modelingMode?'pointer':'inherit'}}
-                  onMouseDown={modelingMode?(e)=>{e.stopPropagation();}:undefined}
-                  onClick={modelingMode?(e)=>{e.stopPropagation();cycleTrend(d._i);}:undefined}>{trendIcon(d.trend)}</text>
+                  style={{cursor:modelingMode?'pointer':'inherit',pointerEvents:modelingMode?'none':'auto'}}>{trendIcon(d.trend)}</text>
                 {/* Account name */}
                 <text x={p.x} y={labelBelow?p.y+r+12:p.y-r-6}
-                  textAnchor="middle" fontSize={isPipe?8.5:10} fontWeight={isPipe?500:800}
-                  fill={isModified?'#A78BFA':isHov?'#F8FAFC':isPipe?'#475569':'#CBD5E1'}
+                  textAnchor="middle" fontSize={isPipe?9:11} fontWeight={isPipe?500:800}
+                  fill={isModified?'#A78BFA':isHov?'#F8FAFC':isPipe?'#475569':'#F8FAFC'}
                   dominantBaseline={labelBelow?'hanging':'auto'}
                   fontFamily="inherit">{d.account}</text>
-                {/* Amount */}
-                <text x={p.x} y={labelBelow?p.y-r-6:p.y+r+12}
-                  textAnchor="middle" fontSize={isPipe?7.5:9}
-                  fill={isModified?'#A78BFA':isHov?col:isPipe?'#334155':'#94A3B8'}
-                  dominantBaseline={labelBelow?'auto':'hanging'}
-                  fontWeight={isPipe?400:600}
-                  fontFamily="inherit">{fmtAmt(d.amount)}</text>
-                {/* Confidence % — clickable to cycle */}
+                {/* Amount + Confidence on same line */}
                 {(()=>{
                   const conf=getConf(d);
-                  const confY=labelBelow?p.y+r+24:p.y-r-17;
+                  const amtY=labelBelow?p.y-r-6:p.y+r+12;
+                  const amtLabel=fmtAmt(d.amount);
+                  const confLabel=conf.label;
                   return (
-                    <text x={p.x} y={confY}
-                      textAnchor="middle" fontSize={7.5} fontWeight="700"
-                      fill={conf.color} fontFamily="inherit"
-                      dominantBaseline={labelBelow?'hanging':'auto'}
-                      style={{cursor:'pointer'}}
-                      onClick={(e)=>{e.stopPropagation();cycleConf(d);}}>
-                      {conf.label}
-                    </text>
+                    <g>
+                      <text x={p.x-2} y={amtY}
+                        textAnchor="end" fontSize={isPipe?8:10}
+                        fill={isModified?'#A78BFA':isHov?col:isPipe?'#334155':'#CBD5E1'}
+                        dominantBaseline={labelBelow?'auto':'hanging'}
+                        fontWeight={isPipe?400:700}
+                        fontFamily="inherit">{amtLabel}</text>
+                      <text x={p.x+2} y={amtY}
+                        textAnchor="start" fontSize={isPipe?8:10} fontWeight="700"
+                        fill={conf.color} fontFamily="inherit"
+                        dominantBaseline={labelBelow?'auto':'hanging'}
+                        style={{cursor:'pointer'}}
+                        onMouseDown={(e)=>{e.stopPropagation();}}
+                        onClick={(e)=>{e.stopPropagation();cycleConf(d);}}>
+                        {confLabel}
+                      </text>
+                    </g>
                   );
                 })()}
-                {/* Hover date */}
-                {isHov&&<text x={p.x} y={labelBelow?p.y+r+36:p.y-r-28}
-                  textAnchor="middle" fontSize={8} fill={isModified?'#A78BFA':'#64748B'}
+                {/* Hover: show date + original if modified */}
+                {isHov&&<text x={p.x} y={labelBelow?p.y+r+26:p.y-r-18}
+                  textAnchor="middle" fontSize={9} fill={isModified?'#A78BFA':'#94A3B8'}
                   dominantBaseline={labelBelow?'hanging':'auto'}
                   fontFamily="inherit">{d.date}{isModified&&origDeal?' (was '+origDeal.date+')':''}</text>}
               </g>
