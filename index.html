@@ -3456,9 +3456,9 @@ function DealPipelineView({sbClient}) {
     });
   };
 
-  const dealR=amt=>amt<150000?16:amt<350000?22:amt<800000?28:amt<2000000?34:40;
-  const DEAL_TIERS=[{label:'< $150K',r:16},{label:'$150K–350K',r:22},{label:'$350K–800K',r:28},{label:'$800K–2M',r:34},{label:'> $2M',r:40}];
-  const PAD={l:78,r:50,t:90,b:64};
+  const dealR=amt=>amt<150000?14:amt<350000?19:amt<600000?24:amt<1000000?30:amt<2000000?37:amt<5000000?44:52;
+  const DEAL_TIERS=[{label:'< $150K',r:14},{label:'$150K–350K',r:19},{label:'$350K–600K',r:24},{label:'$600K–1M',r:30},{label:'$1M–2M',r:37},{label:'$2M–5M',r:44},{label:'> $5M',r:52}];
+  const PAD={l:78,r:50,t:110,b:64};
   const fmtAmt=v=>v>=1e6?`$${(v/1e6).toFixed(1)}M`:v>=1000?`$${Math.round(v/1000)}K`:`$${Math.round(v)}`;
   const trendIcon=t=>t===1?'↑':t===3?'↓':t===4?'?':t===0?'·':'→';
   const statusColor=s=>s==='CLOSED!'?'#10B981':s==='Commit'?'#3B82F6':s==='Pipeline'?'#F59E0B':'#64748B';
@@ -3768,14 +3768,10 @@ function DealPipelineView({sbClient}) {
           {/* Axes */}
           <line x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={PAD.t+chartH} stroke="#475569" strokeWidth={2}/>
           <line x1={PAD.l} y1={PAD.t+chartH} x2={PAD.l+chartW} y2={PAD.t+chartH} stroke="#475569" strokeWidth={2}/>
-          {/* Row labels for quarter breakdowns */}
-          <text x={PAD.l-6} y={PAD.t-52} textAnchor="end" fontSize={9} fontWeight="700" fill="#94A3B8" fontFamily="inherit">T</text>
-          <text x={PAD.l-6} y={PAD.t-36} textAnchor="end" fontSize={9} fontWeight="700" fill="#94A3B8" fontFamily="inherit">A</text>
-          {/* Quarter background bands with per-quarter breakdowns */}
+          {/* Quarter background bands with per-quarter breakdowns in boxes */}
           {(()=>{
             const qtrMonths=months.filter(m=>m.isQtr);
             const catList=[['Total','#EF4444'],['Civ','#3B82F6'],['SLED','#10B981'],['DoD','#F59E0B']];
-            // Build per-quarter totals and adjusted by category
             const qData={};
             filteredDisplay.forEach(d=>{
               const dt=new Date(d.date);const mo=dt.getMonth();
@@ -3795,32 +3791,40 @@ function DealPipelineView({sbClient}) {
               const qKey=m.qLabel;
               const qd=qData[qKey]||{total:{},adj:{}};
               const cx=m.x+bandW/2;
-              // Compute column positions — spread 4 categories evenly across band
-              const colW=Math.min(bandW/4.5, 60);
-              const startX=cx-colW*1.5;
+              // Box dimensions
+              const boxW=Math.min(bandW-8,220);
+              const boxH=62;
+              const boxX=cx-boxW/2;
+              const boxY=PAD.t-boxH-8;
+              // Category column positions inside box
+              const colW=boxW/5;
+              const labelX=boxX+colW*0.5;
+              const cols=[boxX+colW*1.5, boxX+colW*2.5, boxX+colW*3.5, boxX+colW*4.5];
               return (
                 <g key={'qband'+qi}>
                   <rect x={m.x} y={PAD.t} width={bandW} height={chartH}
                     fill={qi%2===0?'rgba(30,41,59,0.5)':'rgba(15,23,42,0.3)'} stroke="none"/>
-                  {/* Per-category Total row — above quarter label */}
+                  {/* Info box background */}
+                  <rect x={boxX} y={boxY} width={boxW} height={boxH} rx={6} ry={6}
+                    fill="rgba(15,23,42,0.85)" stroke="rgba(71,85,105,0.5)" strokeWidth={1}/>
+                  {/* Quarter label row — top of box */}
+                  <text x={cx} y={boxY+15} textAnchor="middle" fontSize={13} fontWeight="800"
+                    fill="#F8FAFC" fontFamily="inherit" letterSpacing="1">{m.qLabel}</text>
+                  {/* Row labels */}
+                  <text x={labelX} y={boxY+33} textAnchor="middle" fontSize={10} fontWeight="700" fill="#94A3B8" fontFamily="inherit">T</text>
+                  <text x={labelX} y={boxY+50} textAnchor="middle" fontSize={10} fontWeight="700" fill="#94A3B8" fontFamily="inherit">A</text>
+                  {/* Category values */}
                   {catList.map(([cat,color],ci)=>{
-                    const val=qd.total[cat]||0;
-                    if(val===0&&cat!=='Total') return null;
-                    const xPos=startX+ci*colW;
-                    return <text key={'t'+cat} x={xPos} y={PAD.t-52} textAnchor="middle" fontSize={10} fontWeight="700"
-                      fill={color} fontFamily="inherit">{fmtAmt(val)}</text>;
+                    const tVal=qd.total[cat]||0;
+                    const aVal=qd.adj[cat]||0;
+                    if(tVal===0&&cat!=='Total') return null;
+                    return <g key={cat}>
+                      <text x={cols[ci]} y={boxY+33} textAnchor="middle" fontSize={12} fontWeight="700"
+                        fill={color} fontFamily="inherit">{fmtAmt(tVal)}</text>
+                      <text x={cols[ci]} y={boxY+50} textAnchor="middle" fontSize={11} fontWeight="600"
+                        fill={color} fontFamily="inherit" opacity={0.55}>{fmtAmt(aVal)}</text>
+                    </g>;
                   })}
-                  {/* Per-category Adjusted row */}
-                  {catList.map(([cat,color],ci)=>{
-                    const val=qd.adj[cat]||0;
-                    if(val===0&&cat!=='Total') return null;
-                    const xPos=startX+ci*colW;
-                    return <text key={'a'+cat} x={xPos} y={PAD.t-36} textAnchor="middle" fontSize={9.5} fontWeight="600"
-                      fill={color} fontFamily="inherit" opacity={0.6}>{fmtAmt(val)}</text>;
-                  })}
-                  {/* Quarter label — below the numbers */}
-                  <text x={cx} y={PAD.t-12} textAnchor="middle" fontSize={14} fontWeight="800"
-                    fill="#F8FAFC" fontFamily="inherit" letterSpacing="1.5">{m.qLabel}</text>
                 </g>
               );
             });
@@ -3890,7 +3894,7 @@ function DealPipelineView({sbClient}) {
                 {isHov&&<circle cx={p.x} cy={p.y} r={r+8} fill={col} opacity={0.15}/>}
                 <circle cx={p.x} cy={p.y} r={r} fill={isDragging?"#1E293B":"#0F172A"} stroke={isDragging?"#A78BFA":col} strokeWidth={isHov||isDragging?3:isPipe?1.2:2.2}/>
                 {/* Trend icon — clickable in modeling mode, with larger invisible hit target */}
-                {modelingMode&&<circle cx={p.x} cy={p.y} r={Math.max(r*0.7,12)} fill="transparent"
+                {modelingMode&&<circle cx={p.x} cy={p.y} r={Math.max(r*0.25,7)} fill="transparent"
                   style={{cursor:'pointer'}}
                   onMouseDown={(e)=>{e.stopPropagation();}}
                   onClick={(e)=>{e.stopPropagation();cycleTrend(d._i);}}/>}
