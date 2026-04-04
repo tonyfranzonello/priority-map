@@ -3146,7 +3146,7 @@ function DealPipelineView({sbClient}) {
       try{
         const{data,error}=await sbClient.from("pipeline_deals").select("*").order("date",{ascending:true});
         if(!error&&data&&data.length>0){
-          const mapped=data.map(r=>({account:r.account,date:r.date,amount:r.amount,trend:r.trend,status:r.status||"",sheet:r.sheet,notes:r.notes||"",category:r.category||""}));
+          const mapped=data.map(r=>({account:r.account,date:r.date,amount:r.amount,trend:r.trend,status:r.status||"",sheet:r.sheet,notes:r.notes||"",category:r.category||"",winPct:r.win_pct!==undefined&&r.win_pct!==null?r.win_pct:0.40}));
           setDeals(mapped);
           setDealsSource("supabase");
         }
@@ -3223,6 +3223,13 @@ function DealPipelineView({sbClient}) {
               if(s.toLowerCase().includes("commit")){status="Commit";break;}
               if(s.toLowerCase().includes("pipeline")){status="Pipeline";break;}
             }
+            // Win probability: column I (index 8), default 40% if blank
+            const rawPct=row[8];
+            let winPct=0.40;
+            if(rawPct!==undefined&&rawPct!==null&&String(rawPct).trim()!==""){
+              const pv=typeof rawPct==="number"?rawPct:parseFloat(String(rawPct).replace(/[%,]/g,""));
+              if(!isNaN(pv)) winPct=pv>1?pv/100:pv; // handle both 85 and 0.85 formats
+            }
             const notes=String(row[14]||"").trim(); // Column O
             // Category from column Q (index 16)
             const rawCat=String(row[16]||"").trim();
@@ -3230,7 +3237,7 @@ function DealPipelineView({sbClient}) {
             if(/civ/i.test(rawCat)&&!/sled/i.test(rawCat)) category="Civ";
             else if(/sled/i.test(rawCat)) category="SLED";
             else if(/dod/i.test(rawCat)) category="DoD";
-            allDeals.push({account,date,amount,trend,status,sheet:sheetLabel,notes,category});
+            allDeals.push({account,date,amount,trend,status,sheet:sheetLabel,notes,category,winPct});
           }
         });
         if(allDeals.length===0){
@@ -3258,7 +3265,8 @@ function DealPipelineView({sbClient}) {
       for(let i=0;i<parsedDeals.length;i+=50){
         const batch=parsedDeals.slice(i,i+50).map(d=>({
           account:d.account, date:d.date, amount:d.amount, trend:d.trend,
-          status:d.status, sheet:d.sheet, notes:d.notes, category:d.category||""
+          status:d.status, sheet:d.sheet, notes:d.notes, category:d.category||"",
+          win_pct:d.winPct!==undefined?d.winPct:0.40
         }));
         const{error}=await sbClient.from("pipeline_deals").insert(batch);
         if(error) throw error;
@@ -3384,7 +3392,8 @@ function DealPipelineView({sbClient}) {
         for(let i=0;i<modelDeals.length;i+=50){
           const batch=modelDeals.slice(i,i+50).map(d=>({
             account:d.account, date:d.date, amount:d.amount, trend:d.trend,
-            status:d.status, sheet:d.sheet, notes:d.notes, category:d.category||""
+            status:d.status, sheet:d.sheet, notes:d.notes, category:d.category||"",
+            win_pct:d.winPct!==undefined?d.winPct:0.40
           }));
           const{error}=await sbClient.from("pipeline_deals").insert(batch);
           if(error) throw error;
@@ -3428,6 +3437,14 @@ function DealPipelineView({sbClient}) {
   // ── Confidence / Win Probability ──
   const CONF_CYCLE=[{label:'Closed',pct:1.0,color:'#10B981'},{label:'85%',pct:0.85,color:'#3B82F6'},{label:'70%',pct:0.70,color:'#06B6D4'},{label:'60%',pct:0.60,color:'#8B5CF6'},{label:'40%',pct:0.40,color:'#F59E0B'},{label:'20%',pct:0.20,color:'#EF4444'},{label:'Pipe',pct:0.0,color:'#475569'}];
   const defaultConfIdx=(d)=>{
+    // Use winPct from spreadsheet if available
+    if(d.winPct!==undefined){
+      const wp=d.winPct;
+      // Find closest CONF_CYCLE entry by pct
+      let bestIdx=6,bestDiff=Infinity;
+      CONF_CYCLE.forEach((c,i)=>{const diff=Math.abs(c.pct-wp);if(diff<bestDiff){bestDiff=diff;bestIdx=i;}});
+      return bestIdx;
+    }
     if(d.status==='CLOSED!') return 0;
     if(d.status==='Commit') return 1;
     return 6; // default to Pipe
@@ -3735,7 +3752,7 @@ function DealPipelineView({sbClient}) {
           return (
             <div style={{marginLeft:'auto',display:'flex',gap:16,alignItems:'flex-start'}}>
               <BarChart data={totalByCat} label="TOTAL" labelColor="#F8FAFC" grandTotal={grandTotal}/>
-              <BarChart data={adjByCat} label="ADJUSTED" labelColor="#A78BFA" grandTotal={grandAdj}/>
+              <BarChart data={adjByCat} label="RISK ADJUSTED" labelColor="#A78BFA" grandTotal={grandAdj}/>
             </div>
           );
         })()}
@@ -3797,7 +3814,7 @@ function DealPipelineView({sbClient}) {
                     fill="#F8FAFC" fontFamily="inherit" letterSpacing="1">{m.qLabel}</text>
                   {/* Row labels */}
                   <text x={labelX} y={boxY+33} textAnchor="middle" fontSize={10} fontWeight="700" fill="#94A3B8" fontFamily="inherit">T</text>
-                  <text x={labelX} y={boxY+50} textAnchor="middle" fontSize={10} fontWeight="700" fill="#94A3B8" fontFamily="inherit">A</text>
+                  <text x={labelX} y={boxY+50} textAnchor="middle" fontSize={10} fontWeight="700" fill="#94A3B8" fontFamily="inherit">RA</text>
                   {/* Category values */}
                   {catList.map(([cat,color],ci)=>{
                     const tVal=qd.total[cat]||0;
