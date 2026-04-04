@@ -3706,51 +3706,36 @@ function DealPipelineView({sbClient}) {
           src.forEach((d,i)=>{const cat=d.category||'';totalByCat[cat]=(totalByCat[cat]||0)+d.amount;grandTotal+=d.amount;});
           const adjByCat={};let grandAdj=0;
           src.forEach((d,i)=>{const cat=d.category||'';const conf=getConf(d);const adj=d.amount*conf.pct;adjByCat[cat]=(adjByCat[cat]||0)+adj;grandAdj+=adj;});
-          const LabeledPie=({data,size,label,labelColor,grandTotal:gt})=>{
-            const r=size/2-2,cx=size/2,cy=size/2;
-            const total=Object.values(data).reduce((a,b)=>a+b,0);
-            if(total===0) return (
-              <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
-                <svg width={size} height={size}><circle cx={cx} cy={cy} r={r} fill="#1E293B" stroke="#334155" strokeWidth={1}/></svg>
-                <div style={{fontSize:9,color:'#64748B',fontWeight:700,letterSpacing:0.5}}>{label}</div>
-                <div style={{fontSize:14,fontWeight:800,color:labelColor}}>{fmtAmt(0)}</div>
-              </div>
-            );
-            let startAngle=-Math.PI/2;
-            const elements=[];
-            Object.entries(data).filter(([,v])=>v>0).forEach(([cat,val])=>{
-              const angle=(val/total)*2*Math.PI;
-              const endAngle=startAngle+angle;
-              const x1=cx+r*Math.cos(startAngle),y1=cy+r*Math.sin(startAngle);
-              const x2=cx+r*Math.cos(endAngle),y2=cy+r*Math.sin(endAngle);
-              const large=angle>Math.PI?1:0;
-              const path=`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z`;
-              elements.push(<path key={cat} d={path} fill={catColors[cat]||'#64748B'} stroke="#0F172A" strokeWidth={1}/>);
-              // Label on slice — position at midpoint of arc, 60% out from center
-              const midAngle=startAngle+angle/2;
-              const labelR=r*0.62;
-              const lx=cx+labelR*Math.cos(midAngle);
-              const ly=cy+labelR*Math.sin(midAngle);
-              if(angle>0.25){
-                elements.push(<text key={'lbl'+cat} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
-                  fontSize={angle>0.6?10:8} fontWeight="800" fill="#F8FAFC" fontFamily="inherit"
-                  style={{textShadow:'0 1px 3px rgba(0,0,0,0.8)'}}>{fmtAmt(val)}</text>);
-              }
-              startAngle=endAngle;
-            });
+          const BarChart=({data,label,labelColor,grandTotal:gt})=>{
+            const cats=['Civ','SLED','DoD'];
+            const maxVal=Math.max(...cats.map(c=>data[c]||0),1);
+            const barW=100;
             return (
-              <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
-                <svg width={size} height={size}>{elements}</svg>
-                <div style={{fontSize:9,color:'#94A3B8',fontWeight:700,letterSpacing:0.5}}>{label}</div>
-                <div style={{fontSize:15,fontWeight:800,color:labelColor}}>{fmtAmt(gt)}</div>
+              <div style={{display:'flex',flexDirection:'column',gap:1}}>
+                <div style={{display:'flex',alignItems:'baseline',gap:6,marginBottom:2}}>
+                  <span style={{fontSize:10,fontWeight:700,color:'#94A3B8',letterSpacing:0.5}}>{label}</span>
+                  <span style={{fontSize:14,fontWeight:800,color:labelColor}}>{fmtAmt(gt)}</span>
+                </div>
+                {cats.map(cat=>{
+                  const val=data[cat]||0;
+                  const w=maxVal>0?Math.max((val/maxVal)*barW,0):0;
+                  return (
+                    <div key={cat} style={{display:'flex',alignItems:'center',gap:4,height:14}}>
+                      <span style={{fontSize:9,fontWeight:700,color:'#94A3B8',width:28,textAlign:'right'}}>{cat}</span>
+                      <div style={{width:barW,height:10,background:'rgba(30,41,59,0.6)',borderRadius:3,overflow:'hidden'}}>
+                        <div style={{width:w,height:'100%',background:catColors[cat]||'#64748B',borderRadius:3,transition:'width 0.3s'}}/>
+                      </div>
+                      <span style={{fontSize:9,fontWeight:700,color:catColors[cat]||'#94A3B8',minWidth:32}}>{val>0?fmtAmt(val):''}</span>
+                    </div>
+                  );
+                })}
               </div>
             );
           };
-          const pieSize=68;
           return (
-            <div style={{marginLeft:'auto',display:'flex',gap:12,alignItems:'flex-start'}}>
-              <LabeledPie data={totalByCat} size={pieSize} label="TOTAL" labelColor="#F8FAFC" grandTotal={grandTotal}/>
-              <LabeledPie data={adjByCat} size={pieSize} label="ADJUSTED" labelColor="#A78BFA" grandTotal={grandAdj}/>
+            <div style={{marginLeft:'auto',display:'flex',gap:16,alignItems:'flex-start'}}>
+              <BarChart data={totalByCat} label="TOTAL" labelColor="#F8FAFC" grandTotal={grandTotal}/>
+              <BarChart data={adjByCat} label="ADJUSTED" labelColor="#A78BFA" grandTotal={grandAdj}/>
             </div>
           );
         })()}
