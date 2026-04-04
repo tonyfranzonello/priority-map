@@ -3902,14 +3902,14 @@ function DealPipelineView({sbClient}) {
                 <text x={p.x} y={p.y+1} textAnchor="middle" dominantBaseline="middle" fontSize={arrowSize}
                   fill={trendColor(d.trend)} fontWeight="bold" fontFamily="inherit"
                   style={{cursor:modelingMode?'pointer':'inherit',pointerEvents:modelingMode?'none':'auto'}}>{trendIcon(d.trend)}</text>
-                {/* Account name */}
+                {/* Account name — always visible but muted */}
                 <text x={p.x} y={labelBelow?p.y+r+12:p.y-r-6}
                   textAnchor="middle" fontSize={isPipe?9:11} fontWeight={isPipe?500:700}
-                  fill={isModified?'#A78BFA':isHov?'#E2E8F0':isPipe?'#475569':'#94A3B8'}
+                  fill={isModified?'#A78BFA':isHov?'#E2E8F0':isPipe?'#334155':'#64748B'}
                   dominantBaseline={labelBelow?'hanging':'auto'}
                   fontFamily="inherit">{d.account}</text>
-                {/* Amount + Confidence on same line */}
-                {(()=>{
+                {/* Amount + Confidence — only on hover */}
+                {(isHov||isDragging)&&(()=>{
                   const conf=getConf(d);
                   const amtY=labelBelow?p.y-r-6:p.y+r+12;
                   const amtLabel=fmtAmt(d.amount);
@@ -3917,14 +3917,14 @@ function DealPipelineView({sbClient}) {
                   return (
                     <g>
                       <text x={p.x-2} y={amtY}
-                        textAnchor="end" fontSize={isPipe?8:10}
-                        fill={isModified?'#A78BFA':isHov?col:isPipe?'#334155':'#64748B'}
+                        textAnchor="end" fontSize={10}
+                        fill={isModified?'#A78BFA':col}
                         dominantBaseline={labelBelow?'auto':'hanging'}
-                        fontWeight={isPipe?400:600}
+                        fontWeight={700}
                         fontFamily="inherit">{amtLabel}</text>
                       <text x={p.x+2} y={amtY}
-                        textAnchor="start" fontSize={isPipe?8:10} fontWeight="600"
-                        fill={conf.color} fontFamily="inherit" opacity={isHov?1:0.7}
+                        textAnchor="start" fontSize={10} fontWeight="700"
+                        fill={conf.color} fontFamily="inherit"
                         dominantBaseline={labelBelow?'auto':'hanging'}
                         style={{cursor:'pointer'}}
                         onMouseDown={(e)=>{e.stopPropagation();}}
