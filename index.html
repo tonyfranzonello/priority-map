@@ -885,7 +885,7 @@ function ValueEffortMatrix({tasks,colorBy,onSelect,selectedId,showDetails,onTask
         if(targetQ!==null&&targetQ!==currentQ){
           const veMap={0:{value:3,effort:1},1:{value:3,effort:3},2:{value:1,effort:1},3:{value:1,effort:3}};
           const newVE=veMap[targetQ];
-          setPendingVEDrop({task:d.task,quadrantKey:targetQ,quadrantLabel:VE_QUADRANTS[targetQ].label,newValue:newVE.value,newEffort:newVE.effort});
+          setPendingVEDrop({task:d.task,quadrantKey:targetQ,quadrantLabel:VE_QUADRANTS[targetQ].label,newValue:newVE.value,newEffort:newVE.effort,dropX:e.clientX,dropY:e.clientY});
         }
       } else {
         if(onSelectRef.current) onSelectRef.current(d.task);
@@ -986,7 +986,7 @@ function ValueEffortMatrix({tasks,colorBy,onSelect,selectedId,showDetails,onTask
         )}
         {/* Confirmation overlay for VxE drag drop */}
         {pendingVEDrop&&(
-          <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",background:"#1E293B",border:`2px solid ${pendingVEDrop.newValue>=2?"#10B981":"#64748B"}`,borderRadius:12,padding:20,zIndex:100,boxShadow:"0 12px 48px rgba(0,0,0,0.8)",minWidth:280,textAlign:"center"}}>
+          <div style={{position:"fixed",left:Math.max(10,Math.min((pendingVEDrop.dropX||0)-140,window.innerWidth-290)),top:Math.max(10,Math.min((pendingVEDrop.dropY||0)-60,window.innerHeight-120)),background:"#1E293B",border:`2px solid ${pendingVEDrop.newValue>=2?"#10B981":"#64748B"}`,borderRadius:12,padding:20,zIndex:100,boxShadow:"0 12px 48px rgba(0,0,0,0.8)",minWidth:280,textAlign:"center"}}>
             <div style={{fontSize:14,fontWeight:600,color:"#F1F5F9",marginBottom:8}}>{pendingVEDrop.task.name}</div>
             <div style={{fontSize:12,color:"#94A3B8",marginBottom:16}}>Move to <strong>{pendingVEDrop.quadrantLabel}</strong>?</div>
             <div style={{display:"flex",gap:12}}>
@@ -3589,11 +3589,9 @@ function DealPipelineView({sbClient}) {
       setModelTooltip({
         x:svgCoord.x,y:svgCoord.y-40,
         amt:fmtAmt(newAmt),
-        delta:amtDelta>=0?'+'+fmtAmt(amtDelta):'-'+fmtAmt(Math.abs(amtDelta)),
-        pct:(amtDelta>=0?'+':'')+amtPct+'%',
         date:newDateStr,
         qtr,
-        color:amtDelta>=0?'#10B981':'#EF4444'
+        color:'#A78BFA'
       });
     };
     const onUp=()=>{
@@ -3951,7 +3949,7 @@ function DealPipelineView({sbClient}) {
           {modelTooltip&&(
             <g>
               <rect x={modelTooltip.x-90} y={modelTooltip.y-38} width={180} height={36} rx={8} fill="#1E293B" stroke={modelTooltip.color} strokeWidth={1.5} opacity={0.96}/>
-              <text x={modelTooltip.x} y={modelTooltip.y-24} textAnchor="middle" fontSize={12} fontWeight="800" fill={modelTooltip.color} fontFamily="inherit">{modelTooltip.amt} ({modelTooltip.pct})</text>
+              <text x={modelTooltip.x} y={modelTooltip.y-24} textAnchor="middle" fontSize={12} fontWeight="800" fill={modelTooltip.color} fontFamily="inherit">{modelTooltip.amt}</text>
               <text x={modelTooltip.x} y={modelTooltip.y-10} textAnchor="middle" fontSize={9} fill="#94A3B8" fontFamily="inherit">{modelTooltip.qtr} · {modelTooltip.date}</text>
             </g>
           )}
@@ -4438,14 +4436,18 @@ function App() {
     // Save snapshot after edit
     if(sbStatus==="connected"&&sbClientRef.current) saveSnapshot(sbClientRef.current, tasks, sbUserEmail);
   };
-  const handleDelete=async id=>{
+  const [deleteConfirmId,setDeleteConfirmId]=useState(null);
+  const confirmDelete=id=>setDeleteConfirmId(id);
+  const executeDelete=async()=>{
+    const id=deleteConfirmId;
+    if(!id) return;
     if(sbStatus==="connected"&&sbClientRef.current){
       await sbClientRef.current.from("tasks").delete().eq("id",id);
     }
-    setTasks(ts=>ts.filter(t=>t.id!==id));setSelected(null);
-    // Save snapshot after delete
+    setTasks(ts=>ts.filter(t=>t.id!==id));setSelected(null);setDeleteConfirmId(null);
     if(sbStatus==="connected"&&sbClientRef.current) saveSnapshot(sbClientRef.current, tasks.filter(t=>t.id!==id), sbUserEmail);
   };
+  const handleDelete=id=>confirmDelete(id);
 
   // Handle drag-and-drop updates from Rings and VxE views
   const handleDragUpdate=async(taskId,changes)=>{
@@ -4928,6 +4930,29 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Delete confirmation dialog */}
+      {deleteConfirmId&&(()=>{
+        const t=tasks.find(t=>t.id===deleteConfirmId);
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}}
+            onClick={()=>setDeleteConfirmId(null)}>
+            <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:12,padding:"24px 32px",maxWidth:360,textAlign:"center"}}
+              onClick={e=>e.stopPropagation()}>
+              <div style={{fontSize:16,fontWeight:700,color:"#F8FAFC",marginBottom:8}}>Delete Task?</div>
+              <div style={{fontSize:13,color:"#94A3B8",marginBottom:20}}>
+                Are you sure you want to delete{t?' "'+t.title+'"':'this task'}? This cannot be undone.
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+                <button onClick={()=>setDeleteConfirmId(null)}
+                  style={{padding:"8px 20px",borderRadius:8,border:"1px solid #334155",background:"#0F172A",color:"#94A3B8",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>No</button>
+                <button onClick={executeDelete}
+                  style={{padding:"8px 20px",borderRadius:8,border:"none",background:"#EF4444",color:"#F8FAFC",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Yes, Delete</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showSbModal&&(
         <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)setShowSbModal(false);}}>
