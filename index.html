@@ -4302,10 +4302,9 @@ function App() {
   const [sbError,setSbError]=useState("");
   const [showSbModal,setShowSbModal]=useState(false);
   const [sbUserEmail,setSbUserEmail]=useState(null);
-  const [authChecked,setAuthChecked]=useState(false);
-  const [authLoading,setAuthLoading]=useState(false);
+  const APP_PASSWORD="confluent";
+  const [isUnlocked,setIsUnlocked]=useState(()=>localStorage.getItem("pm_unlocked")==="true");
   const [authMsg,setAuthMsg]=useState("");
-  const ALLOWED_EMAILS=["mpeacock@confluent.io","mwallace@confluent.io","afranzonello@confluent.io"];
   const [showRollback,setShowRollback]=useState(false);
   const [showArchModal,setShowArchModal]=useState(false);
   const [snapshots,setSnapshots]=useState([]);
@@ -4341,18 +4340,13 @@ function App() {
         }
       });
       setSbStatus("connected");
-      // Check auth session + listen for changes (magic link callback, refresh)
+      // Check auth session
       client.auth.getSession().then(({data:{session}})=>{
-        if(session?.user?.email&&ALLOWED_EMAILS.includes(session.user.email.toLowerCase())){
-          setSbUserEmail(session.user.email);
-        }
-        setAuthChecked(true);
+        if(session?.user?.email) setSbUserEmail(session.user.email);
       });
       client.auth.onAuthStateChange((event,session)=>{
-        if(session?.user?.email&&ALLOWED_EMAILS.includes(session.user.email.toLowerCase())){
-          setSbUserEmail(session.user.email);
-        } else if(event==='SIGNED_OUT') setSbUserEmail('');
-        setAuthChecked(true);
+        if(session?.user?.email) setSbUserEmail(session.user.email);
+        else if(event==='SIGNED_OUT') setSbUserEmail('');
       });
     });
     const sub=client.channel("tasks-changes")
@@ -4478,35 +4472,30 @@ function App() {
     ? {display:"flex",alignItems:"center",justifyContent:"flex-start",flex:1,minHeight:0,overflow:"hidden"}
     : {display:"flex",flex:1,minHeight:0,overflow:"hidden"};
 
-  // ── Auth Gate — block everything until logged in ──
-  if(!authChecked) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#0F172A"}}>
-      <div style={{color:"#475569",fontSize:14}}>Loading...</div>
-    </div>
-  );
-  if(!sbUserEmail) return (
+  // ── Password Gate — block everything until correct password ──
+  if(!isUnlocked) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#0F172A"}}>
       <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:16,padding:"40px 48px",maxWidth:380,width:"100%",textAlign:"center"}}>
         <div style={{width:48,height:48,background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,margin:"0 auto 16px"}}>⊙</div>
         <div style={{fontSize:22,fontWeight:800,color:"#F8FAFC",marginBottom:4}}>Priority Map</div>
-        <div style={{fontSize:13,color:"#64748B",marginBottom:24}}>Sign in to continue</div>
-        {authMsg&&<div style={{fontSize:12,color:"#10B981",marginBottom:16,padding:"8px 12px",background:"rgba(16,185,129,0.1)",borderRadius:8}}>{authMsg}</div>}
-        <form onSubmit={async(e)=>{
+        <div style={{fontSize:13,color:"#64748B",marginBottom:24}}>Enter password to continue</div>
+        {authMsg&&<div style={{fontSize:12,color:"#EF4444",marginBottom:16,padding:"8px 12px",background:"rgba(239,68,68,0.1)",borderRadius:8}}>{authMsg}</div>}
+        <form onSubmit={(e)=>{
           e.preventDefault();
-          const email=e.target.email.value.trim().toLowerCase();
-          if(!email) return;
-          if(!ALLOWED_EMAILS.includes(email)){setAuthMsg("Access denied. This email is not authorized.");return;}
-          setAuthLoading(true);setAuthMsg("");
-          const{error}=await sbClientRef.current.auth.signInWithOtp({email});
-          setAuthLoading(false);
-          if(error) setAuthMsg("Error: "+error.message);
-          else setAuthMsg("Check your email for a login link!");
+          const pw=e.target.pw.value.trim().toLowerCase();
+          if(pw===APP_PASSWORD){
+            localStorage.setItem("pm_unlocked","true");
+            setIsUnlocked(true);
+            setAuthMsg("");
+          } else {
+            setAuthMsg("Incorrect password.");
+          }
         }}>
-          <input name="email" type="email" placeholder="Enter your email" required
+          <input name="pw" type="password" placeholder="Password" required autoFocus
             style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #334155",background:"#0F172A",color:"#E2E8F0",fontSize:14,outline:"none",marginBottom:12,boxSizing:"border-box",fontFamily:"inherit"}}/>
-          <button type="submit" disabled={authLoading}
-            style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",color:"#F8FAFC",fontSize:14,fontWeight:700,cursor:authLoading?"wait":"pointer",opacity:authLoading?0.6:1,fontFamily:"inherit"}}>
-            {authLoading?"Sending...":"Send Login Link"}
+          <button type="submit"
+            style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#3B82F6,#8B5CF6)",color:"#F8FAFC",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+            Enter
           </button>
         </form>
       </div>
@@ -4559,15 +4548,6 @@ function App() {
             {sbStatus==="connected"?"Synced":sbStatus==="connecting"?"Connecting…":sbStatus==="error"?"Sync Error":"☁ Sync"}
           </button>
           {sbStatus==="connected"&&sbUserEmail&&<span style={{fontSize:10,color:"#64748B",marginLeft:4}}>{sbUserEmail}</span>}
-          {sbStatus==="connected"&&!sbUserEmail&&<button onClick={async()=>{
-            const ALLOWED_EMAILS=["mpeacock@confluent.io","mwallace@confluent.io","afranzonello@confluent.io"];
-            const email=prompt("Enter your email for magic link login:");
-            if(!email) return;
-            if(!ALLOWED_EMAILS.includes(email.trim().toLowerCase())){alert("Access denied. This email is not authorized.");return;}
-            const{error}=await sbClientRef.current.auth.signInWithOtp({email:email.trim().toLowerCase()});
-            if(error) alert("Auth error: "+error.message);
-            else alert("Check your email for a login link! You'll stay logged in on this device.");
-          }} style={{padding:"4px 10px",borderRadius:6,border:"1px solid #334155",background:"#1E293B",color:"#94A3B8",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Login</button>}
           {sbStatus==="connected"&&<button onClick={async()=>{
             const ans=prompt("Security Question: What is your mother's middle name?");
             if(!ans||ans.trim().toLowerCase()!=="elizabeth"){if(ans!==null)alert("Incorrect answer.");return;}
